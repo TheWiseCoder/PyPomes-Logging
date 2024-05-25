@@ -1,16 +1,17 @@
 import json
 import logging
-from datetime import datetime
-from dateutil import parser
+from datetime import datetime, timedelta
 from flask import Request, Response, send_file
+from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
 from io import BytesIO
 from pathlib import Path
 from typing import Final, Literal, TextIO
 
 from pypomes_core import (
-    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_DIR,
-    env_get_str, env_get_path
+    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, DATETIME_FORMAT_COMPACT,
+    env_get_str, env_get_path, datetime_parse
 )
+from pypomes_http import http_get_parameters
 
 
 def __get_logging_level(level: Literal["debug", "info", "warning", "error", "critical"]) -> int:
@@ -23,17 +24,17 @@ def __get_logging_level(level: Literal["debug", "info", "warning", "error", "cri
     result: int | None
     match level:
         case "debug":
-            result = logging.DEBUG          # 10
+            result = DEBUG          # 10
         case "info":
-            result = logging.INFO           # 20
+            result = INFO           # 20
         case "warning":
-            result = logging.WARN           # 30
+            result = WARNING        # 30
         case "error":
-            result = logging.ERROR          # 40
+            result = ERROR          # 40
         case "critical":
-            result = logging.CRITICAL       # 50
+            result = CRITICAL       # 50
         case _:
-            result = logging.NOTSET         # 0
+            result = NOTSET         # 0
 
     return result
 
@@ -45,7 +46,7 @@ LOGGING_FORMAT: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_FORMAT",
 LOGGING_STYLE: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_STYLE", "{")
 
 LOGGING_FILE_PATH: Final[Path] = env_get_path(f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                              TEMP_DIR / f"{APP_PREFIX}.log")
+                                              TEMP_FOLDER / f"{APP_PREFIX}.log")
 LOGGING_FILE_MODE: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_FILE_MODE", "a")
 
 # define and configure the logger
@@ -68,8 +69,9 @@ for _handler in logging.root.handlers:
 
 
 def logging_get_entries(errors: list[str],
-                        log_level: Literal["debug", "info", "warning", "error", "critical"] = None,
-                        log_from: str = None, log_to: str = None,
+                        log_level: int = None,
+                        log_from: datetime = None,
+                        log_to: datetime = None,
                         log_path: Path | str = LOGGING_FILE_PATH) -> BytesIO:
     """
     Extract and return all entries in the logging file *log_path*.
@@ -89,64 +91,57 @@ def logging_get_entries(errors: list[str],
 
     # obtain the logging level
     # noinspection PyTypeChecker
-    logging_level: int = __get_logging_level(log_level)
 
-    # obtain the initial timestamp
-    from_stamp: datetime | None = None
-    if log_from:
-        from_stamp = parser.parse(log_from)
-        if not from_stamp:
-            errors.append(f"Value '{from_stamp}' of 'from' attribute invalid")
-
-    # obtain the final timestamp
-    to_stamp: datetime | None = None
-    if log_to:
-        to_stamp = parser.parse(log_to)
-        if not to_stamp or \
-           (from_stamp and from_stamp > to_stamp):
-            errors.append(f"Value '{to_stamp}' of 'to' attribute invalid")
-
-    file_path: Path = Path(log_path)
+    filepath: Path = Path(log_path)
     # does the log file exist ?
-    if not Path.exists(file_path):
+    if not isinstance(filepath, Path) or not filepath.exists():
         # no, report the error
-        errors.append(f"File '{file_path}' not found")
+        errors.append(f"File '{filepath}' not found")
 
     # any error ?
-    if len(errors) == 0:
+    if not errors:
         # no, proceed
         result = BytesIO()
-        with Path.open(file_path) as f:
+        with filepath.open() as f:
             line: str = f.readline()
             while line:
-                items: list[str] = line.split(maxsplit=3)
+                items: list[str] = line.split(sep=None,
+                                              maxsplit=3)
                 # noinspection PyTypeChecker
-                msg_level: int = __get_logging_level(items[2])
-                if msg_level >= logging_level:
-                    timestamp: datetime = parser.parse(f"{items[0]} {items[1]}")
-                    if (not from_stamp or timestamp >= from_stamp) and \
-                       (not to_stamp or timestamp <= to_stamp):
+                msg_level: int = CRITICAL if len(items) < 2 else __get_logging_level(items[2])
+                # 'not log_level' works for both values 'NOTSET' and 'None'
+                if not log_level or msg_level >= log_level:
+                    if len(items) > 1 and (log_from or log_to):
+                        timestamp: datetime = datetime_parse(f"{items[0]} {items[1]}")
+                        if not timestamp or \
+                           ((not log_from or timestamp >= log_from) and
+                            (not log_to or timestamp <= log_to)):
+                            result.write(line.encode())
+                    else:
                         result.write(line.encode())
                 line = f.readline()
 
     return result
 
 
-def logging_get_entries_from_request(request: Request, as_attachment: bool = False) -> Response:
+def logging_send_entries(request: Request) -> Response:
     """
-    Retrieve from the log file, and return, the entries matching the criteria specified.
+    Retrieve from the log file, and send in response, the entries matching the criteria specified.
 
-    These criteria are specified in the query string of the HTTP request, according to the pattern
-    *path=<log-path>&level=<log-level>&from=YYYYMMDDhhmmss&to=YYYYMMDDhhmmss>*
+    These criteria are specified as imput parameters of the HTTP request, according to the pattern
+    *attach=<[t,true,f,false]>&log-path=<log-path>&level=<log-level>&
+     from-datetime=YYYYMMDDhhmmss&to-datetime=YYYYMMDDhhmmss&last-days=<n>&last-hours=<n>>*
 
     All criteria are optional:
-        - path: the path of the log file
-        - level: the logging level of the entries
-        - from: the start timestamp
-        - to: the finish timestamp
+        - *attach*: whether browser should display or persist file (defaults to True - persist it)
+        - *log-path*: the path of the log file (defaults to LOGGING_FILE_PATH)
+        - *level*: the logging level of the entries
+        - *from-datetime*: the start timestamp
+        - to-datetime*: the finish timestamp
+        - *last-days*: how many days before current date
+        - *last-hours*: how may hours before current time
 
-    :param request: the HTTP request
-    :param as_attachment: indicate to browser that it should offer to save the file, or just display it
+    :param request: the 'Request' object
     :return: file containing the log entries requested on success, or incidental errors on fail
     """
     # declare the return variable
@@ -155,43 +150,60 @@ def logging_get_entries_from_request(request: Request, as_attachment: bool = Fal
     # initialize the error messages list
     errors: list[str] = []
 
+    # obtain the request parameters
+    scheme: dict = http_get_parameters(request=request)
+
     # obtain the logging level
-    log_level: str = request.args.get("level")
+    log_level: str = scheme.get("level")
 
     # obtain the initial and final timestamps
-    log_from: str = request.args.get("from")
-    log_to: str = request.args.get("to")
+    log_from: datetime = datetime_parse(scheme.get("from-datetime"))
+    log_to: datetime = datetime_parse(scheme.get("to-datetime"))
+
+    # if 'from' and 'to' were not specified, try 'last-days' and 'last-hours'
+    if not log_from and not log_to:
+        last_days: str = scheme.get("last-days", "0")
+        last_hours: str = scheme.get("last-hours", "0")
+        offset_days: int = int(last_days) if last_days.isdigit() else 0
+        offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
+        if offset_days or offset_hours:
+            log_from = datetime.now() - timedelta(days=offset_days, hours=offset_hours)
 
     # obtain the path for the log file
-    log_path: str = request.args.get("path") or LOGGING_FILE_PATH
+    log_path: Path | str = scheme.get("log-path", LOGGING_FILE_PATH)
 
     # retrieve the log entries
     # noinspection PyTypeChecker
     log_entries: BytesIO = logging_get_entries(errors, log_level, log_from, log_to, log_path)
 
     # any error ?
-    if len(errors) == 0:
-        # no, return the log entries requested as an attached file
-        base: str = "entries" if not log_from or not log_to else \
-            (
-                f"{''.join(ch for ch in log_from if ch.isdigit())}"
-                f"{'_'.join(ch for ch in log_to if ch.isdigit())}"
-            )
+    if not errors:
+        # no, return the log entries requested
+        base: str = "entries"
+        if log_from:
+           base += f"-from_{log_from.strftime(DATETIME_FORMAT_COMPACT)}"
+        if log_to:
+           base += f"-to_{log_to.strftime(DATETIME_FORMAT_COMPACT)}"
         log_file = f"log_{base}.log"
+        param: str = scheme.get("attach", "true")
+        attach: bool = not (isinstance(param, str) and param.lower() in ["0", "f", "false"])
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
                            mimetype="text/plain",
-                           as_attachment=as_attachment,
+                           as_attachment=attach,
                            download_name=log_file)
     else:
         # yes, report the failure
-        result = Response(json.dumps({"errors": errors}), status=400,  mimetype="application/json")
+        result = Response(response=json.dumps({"errors": errors}),
+                          status=400,
+                          mimetype="application/json")
 
     return result
 
 
-def logging_log_msgs(msgs: list[str], output_dev: TextIO = None,
-                     log_level: Literal["debug", "info", "warning", "error", "critical"] = "error",
+def logging_log_msgs(msgs: str | list[str],
+                     output_dev: TextIO = None,
+                     log_level: int = ERROR,
                      logger: logging.Logger = PYPOMES_LOGGER) -> None:
     """
     Write all messages in *msgs* to *logger*'s logging file, and to *output_dev*.
@@ -218,7 +230,8 @@ def logging_log_msgs(msgs: list[str], output_dev: TextIO = None,
             log_writer = logger.critical
 
     # traverse the messages list
-    for msg in msgs:
+    msg_list: list[str] = [msgs] if isinstance(msgs, str) else msgs
+    for msg in msg_list:
         # has the log writer been defined ?
         if log_writer:
             # yes, log the message
@@ -244,7 +257,8 @@ def logging_log_debug(msg: str, output_dev: TextIO = None,
     __write_to_output(msg, output_dev)
 
 
-def logging_log_info(msg: str, output_dev: TextIO = None,
+def logging_log_info(msg: str,
+                     output_dev: TextIO = None,
                      logger: logging.Logger = PYPOMES_LOGGER) -> None:
     """
     Write info-level message *msg* to *logger*'s logging file, and to *output_dev*.
@@ -260,7 +274,8 @@ def logging_log_info(msg: str, output_dev: TextIO = None,
     __write_to_output(msg, output_dev)
 
 
-def logging_log_warning(msg: str, output_dev: TextIO = None,
+def logging_log_warning(msg: str,
+                        output_dev: TextIO = None,
                         logger: logging.Logger = PYPOMES_LOGGER) -> None:
     """
     Write warning-level message *msg* to *logger*'s logging file, and to *output_dev*.
@@ -276,7 +291,8 @@ def logging_log_warning(msg: str, output_dev: TextIO = None,
     __write_to_output(msg, output_dev)
 
 
-def logging_log_error(msg: str, output_dev: TextIO = None,
+def logging_log_error(msg: str,
+                      output_dev: TextIO = None,
                       logger: logging.Logger = PYPOMES_LOGGER) -> None:
     """
     Write error-level message *msg* to *logger*'s logging file, and to *output_dev*.
@@ -292,7 +308,8 @@ def logging_log_error(msg: str, output_dev: TextIO = None,
     __write_to_output(msg, output_dev)
 
 
-def logging_log_critical(msg: str, output_dev: TextIO = None,
+def logging_log_critical(msg: str,
+                         output_dev: TextIO = None,
                          logger: logging.Logger = PYPOMES_LOGGER) -> None:
     """
     Write critical-level message *msg* to *logger*'s logging file, and to *output_dev*.
@@ -308,7 +325,8 @@ def logging_log_critical(msg: str, output_dev: TextIO = None,
     __write_to_output(msg, output_dev)
 
 
-def __write_to_output(msg: str, output_dev: TextIO) -> None:
+def __write_to_output(msg: str,
+                      output_dev: TextIO) -> None:
 
     # has the output device been defined ?
     if output_dev:
