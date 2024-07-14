@@ -5,13 +5,12 @@ from flask import Request, Response, send_file
 from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
 from io import BytesIO
 from pathlib import Path
-from typing import Final, Literal, TextIO
-
 from pypomes_core import (
     APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, DATETIME_FORMAT_COMPACT,
-    env_get_str, env_get_path, datetime_parse
+    env_get_str, env_get_path, datetime_parse, str_get_positional
 )
 from pypomes_http import http_get_parameters
+from typing import Final, Literal, TextIO
 
 
 def __get_logging_level(level: Literal["debug", "info", "warning", "error", "critical"]) -> int:
@@ -39,22 +38,26 @@ def __get_logging_level(level: Literal["debug", "info", "warning", "error", "cri
     return result
 
 
-LOGGING_ID: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_ID", f"{APP_PREFIX}")
-LOGGING_FORMAT: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_FORMAT",
-                                         "{asctime} {levelname:1.1} {thread:5d} "
-                                         "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
-LOGGING_STYLE: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_STYLE", "{")
+LOGGING_ID: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_ID",
+                                     def_value=f"{APP_PREFIX}")
+LOGGING_FORMAT: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                         def_value=("{asctime} {levelname:1.1} {thread:5d} "
+                                                    "{module:20.20} {funcName:20.20} {lineno:3d} {message}"))
+LOGGING_STYLE: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                        def_value="{")
 
-LOGGING_FILE_PATH: Final[Path] = env_get_path(f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                              TEMP_FOLDER / f"{APP_PREFIX}.log")
-LOGGING_FILE_MODE: Final[str] = env_get_str(f"{APP_PREFIX}_LOGGING_FILE_MODE", "a")
+LOGGING_FILE_PATH: Final[Path] = env_get_path(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
+                                              def_value=TEMP_FOLDER / f"{APP_PREFIX}.log")
+LOGGING_FILE_MODE: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
+                                            def_value="a")
 
 # define and configure the logger
-PYPOMES_LOGGER: Final[logging.Logger] = logging.getLogger(LOGGING_ID)
+PYPOMES_LOGGER: Final[logging.Logger] = logging.getLogger(name=LOGGING_ID)
 
 # define the logging severity level
 # noinspection PyTypeChecker
-LOGGING_LEVEL: Final[int] = __get_logging_level(env_get_str(f"{APP_PREFIX}_LOGGING_LEVEL"))
+LOGGING_LEVEL: Final[int] = __get_logging_level(
+    level=env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL"))
 
 # configure the logger
 # noinspection PyTypeChecker
@@ -65,7 +68,7 @@ logging.basicConfig(filename=LOGGING_FILE_PATH,
                     style=LOGGING_STYLE,
                     level=LOGGING_LEVEL)
 for _handler in logging.root.handlers:
-    _handler.addFilter(logging.Filter(LOGGING_ID))
+    _handler.addFilter(filter=logging.Filter(LOGGING_ID))
 
 
 def logging_get_entries(errors: list[str],
@@ -102,13 +105,14 @@ def logging_get_entries(errors: list[str],
     if not errors:
         # no, proceed
         result = BytesIO()
-        with filepath.open() as f:
+        with (filepath.open() as f):
             line: str = f.readline()
             while line:
                 items: list[str] = line.split(sep=None,
                                               maxsplit=3)
                 # noinspection PyTypeChecker
-                msg_level: int = CRITICAL if len(items) < 2 else __get_logging_level(items[2])
+                msg_level: int = CRITICAL if len(items) < 2 \
+                                 else __get_logging_level(level=items[2])
                 # 'not log_level' works for both values 'NOTSET' and 'None'
                 if not log_level or msg_level >= log_level:
                     if len(items) > 1 and (log_from or log_to):
@@ -154,11 +158,13 @@ def logging_send_entries(request: Request) -> Response:
     scheme: dict = http_get_parameters(request=request)
 
     # obtain the logging level
-    log_level: str = scheme.get("level")
+    log_level: int = str_get_positional(source=scheme.get("level"),
+                                        list_origin=["N", "D", "I", "W", "E", "C"],
+                                        list_dest=[0, 10, 20, 30, 40, 50])
 
     # obtain the initial and final timestamps
-    log_from: datetime = datetime_parse(scheme.get("from-datetime"))
-    log_to: datetime = datetime_parse(scheme.get("to-datetime"))
+    log_from: datetime = datetime_parse(dt_str=scheme.get("from-datetime"))
+    log_to: datetime = datetime_parse(dt_str=scheme.get("to-datetime"))
 
     # if 'from' and 'to' were not specified, try 'last-days' and 'last-hours'
     if not log_from and not log_to:
@@ -167,23 +173,26 @@ def logging_send_entries(request: Request) -> Response:
         offset_days: int = int(last_days) if last_days.isdigit() else 0
         offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
         if offset_days or offset_hours:
-            log_from = datetime.now() - timedelta(days=offset_days, hours=offset_hours)
+            log_from = datetime.now() - timedelta(days=offset_days,
+                                                  hours=offset_hours)
 
     # obtain the path for the log file
     log_path: Path | str = scheme.get("log-path", LOGGING_FILE_PATH)
 
     # retrieve the log entries
-    # noinspection PyTypeChecker
-    log_entries: BytesIO = logging_get_entries(errors, log_level, log_from, log_to, log_path)
-
+    log_entries: BytesIO = logging_get_entries(errors=errors,
+                                               log_level=log_level,
+                                               log_from=log_from,
+                                               log_to=log_to,
+                                               log_path=log_path)
     # any error ?
     if not errors:
         # no, return the log entries requested
         base: str = "entries"
         if log_from:
-           base += f"-from_{log_from.strftime(DATETIME_FORMAT_COMPACT)}"
+           base += f"-from_{log_from.strftime(format=DATETIME_FORMAT_COMPACT)}"
         if log_to:
-           base += f"-to_{log_to.strftime(DATETIME_FORMAT_COMPACT)}"
+           base += f"-to_{log_to.strftime(format=DATETIME_FORMAT_COMPACT)}"
         log_file = f"log_{base}.log"
         param: str = scheme.get("attach", "true")
         attach: bool = not (isinstance(param, str) and param.lower() in ["0", "f", "false"])
@@ -194,7 +203,7 @@ def logging_send_entries(request: Request) -> Response:
                            download_name=log_file)
     else:
         # yes, report the failure
-        result = Response(response=json.dumps({"errors": errors}),
+        result = Response(response=json.dumps(obj={"errors": errors}),
                           status=400,
                           mimetype="application/json")
 
@@ -238,7 +247,8 @@ def logging_log_msgs(msgs: str | list[str],
             log_writer(msg)
 
         # write to output
-        __write_to_output(msg, output_dev)
+        __write_to_output(msg=msg,
+                          output_dev=output_dev)
 
 
 def logging_log_debug(msg: str, output_dev: TextIO = None,
@@ -253,8 +263,9 @@ def logging_log_debug(msg: str, output_dev: TextIO = None,
     :param logger: the logger to use
     """
     # log the message
-    logger.debug(msg)
-    __write_to_output(msg, output_dev)
+    logger.debug(msg=msg)
+    __write_to_output(msg=msg,
+                      output_dev=output_dev)
 
 
 def logging_log_info(msg: str,
@@ -270,8 +281,9 @@ def logging_log_info(msg: str,
     :param logger: the logger to use
     """
     # log the message
-    logger.info(msg)
-    __write_to_output(msg, output_dev)
+    logger.info(msg=msg)
+    __write_to_output(msg=msg,
+                      output_dev=output_dev)
 
 
 def logging_log_warning(msg: str,
@@ -287,8 +299,9 @@ def logging_log_warning(msg: str,
     :param logger: the logger to use
     """
     # log the message
-    logger.warning(msg)
-    __write_to_output(msg, output_dev)
+    logger.warning(msg=msg)
+    __write_to_output(msg=msg,
+                      output_dev=output_dev)
 
 
 def logging_log_error(msg: str,
@@ -304,8 +317,9 @@ def logging_log_error(msg: str,
     :param logger: the logger to use
     """
     # log the message
-    logger.error(msg)
-    __write_to_output(msg, output_dev)
+    logger.error(msg=msg)
+    __write_to_output(msg=msg,
+                      output_dev=output_dev)
 
 
 def logging_log_critical(msg: str,
@@ -321,8 +335,9 @@ def logging_log_critical(msg: str,
     :param logger: the logger to use
     """
     # log the message
-    logger.critical(msg)
-    __write_to_output(msg, output_dev)
+    logger.critical(msg=msg)
+    __write_to_output(msg=msg,
+                      output_dev=output_dev)
 
 
 def __write_to_output(msg: str,
