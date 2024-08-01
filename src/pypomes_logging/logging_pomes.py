@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Request, Response, send_file
+from flask import Flask, Response, request, send_file
 from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
 from io import BytesIO
 from pathlib import Path
@@ -10,72 +10,89 @@ from pypomes_core import (
     env_get_str, env_get_path, datetime_parse, str_get_positional
 )
 from pypomes_http import http_get_parameters
-from typing import Final, Literal, TextIO
+from typing import Any, Literal, TextIO
+
+LOGGING_ID: str | None = None
+LOGGING_LEVEL: int | None = None
+LOGGING_FORMAT: str | None = None
+LOGGING_STYLE: str | None = None
+LOGGING_FILE_PATH: str | None = None
+LOGGING_FILE_MODE: str | None = None
+PYPOMES_LOGGER: logging.Logger | None = None
 
 
-def __get_logging_level(level: Literal["debug", "info", "warning", "error", "critical"]) -> int:
+def logging_startup(scheme: dict[str, Any] = None,
+                    flask_app: Flask = None) -> None:
     """
-    Translate the log severity string *level* into the logging's internal severity value.
+    Start or re-start the log service.
 
-    :param level: the string log severity
-    :return: the internal logging severity value
+    The parameters for starting the log can be found either as environment variables, or as
+    attributes in *scheme*. Default values are used, if necessary.
+
+    :param scheme: optional roll of log parameters and corresponding values
+    :param flask_app: the *Flask* application object
     """
-    result: int | None
-    match level:
-        case "debug":
-            result = DEBUG          # 10
-        case "info":
-            result = INFO           # 20
-        case "warning":
-            result = WARNING        # 30
-        case "error":
-            result = ERROR          # 40
-        case "critical":
-            result = CRITICAL       # 50
-        case _:
-            result = NOTSET         # 0
+    scheme = scheme or {}
 
-    return result
+    # establish configuration attributes
+    global LOGGING_ID
+    LOGGING_ID = scheme.get("log-id",
+                            env_get_str(key=f"{APP_PREFIX}_LOGGING_ID",
+                                        def_value=f"{APP_PREFIX}"))
+    global LOGGING_LEVEL
+    # noinspection PyTypeChecker
+    LOGGING_LEVEL = __get_logging_level(level=scheme.get("log-level",
+                                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                                     def_value="info").lower()))
+    global LOGGING_FORMAT
+    LOGGING_FORMAT= scheme.get("log-format",
+                               env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                           def_value=("{asctime} {levelname:1.1} {thread:5d} "
+                                                      "{module:20.20} {funcName:20.20} {lineno:3d} {message}")))
+    global LOGGING_STYLE
+    LOGGING_STYLE = scheme.get("log-style",
+                               env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                           def_value="{"))
+    global LOGGING_FILE_PATH
+    LOGGING_FILE_PATH = scheme.get("log-file-path",
+                                   env_get_path(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
+                                                def_value=TEMP_FOLDER / f"{APP_PREFIX}.log"))
+    global LOGGING_FILE_MODE
+    LOGGING_FILE_MODE = scheme.get("log-file-mode",
+                                   env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
+                                               def_value="a"))
+    global PYPOMES_LOGGER
+    # is there a logger ?
+    if PYPOMES_LOGGER:
+        # yes, shut it down
+        logging.shutdown()
 
+    # start the logger
+    PYPOMES_LOGGER = logging.getLogger(name=LOGGING_ID)
 
-LOGGING_ID: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_ID",
-                                     def_value=f"{APP_PREFIX}")
-LOGGING_FORMAT: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                         def_value=("{asctime} {levelname:1.1} {thread:5d} "
-                                                    "{module:20.20} {funcName:20.20} {lineno:3d} {message}"))
-LOGGING_STYLE: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
-                                        def_value="{")
+    # configure the logger
+    # noinspection PyTypeChecker
+    logging.basicConfig(filename=LOGGING_FILE_PATH,
+                        filemode=LOGGING_FILE_MODE,
+                        format=LOGGING_FORMAT,
+                        datefmt=DATETIME_FORMAT_INV,
+                        style=LOGGING_STYLE,
+                        level=LOGGING_LEVEL)
+    for _handler in logging.root.handlers:
+        _handler.addFilter(filter=logging.Filter(LOGGING_ID))
 
-LOGGING_FILE_PATH: Final[Path] = env_get_path(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                              def_value=TEMP_FOLDER / f"{APP_PREFIX}.log")
-LOGGING_FILE_MODE: Final[str] = env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
-                                            def_value="a")
-
-# define and configure the logger
-PYPOMES_LOGGER: Final[logging.Logger] = logging.getLogger(name=LOGGING_ID)
-
-# define the logging severity level
-# noinspection PyTypeChecker
-LOGGING_LEVEL: Final[int] = __get_logging_level(
-    level=env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL"))
-
-# configure the logger
-# noinspection PyTypeChecker
-logging.basicConfig(filename=LOGGING_FILE_PATH,
-                    filemode=LOGGING_FILE_MODE,
-                    format=LOGGING_FORMAT,
-                    datefmt=DATETIME_FORMAT_INV,
-                    style=LOGGING_STYLE,
-                    level=LOGGING_LEVEL)
-for _handler in logging.root.handlers:
-    _handler.addFilter(filter=logging.Filter(LOGGING_ID))
+    # establish the logging service endpoint
+    if flask_app:
+        flask_app.add_url_rule(rule="/logging",
+                               endpoint="logging",
+                               view_func=logging_service,
+                               methods=["GET", "POST"])
 
 
 def logging_get_entries(errors: list[str],
                         log_level: int = None,
                         log_from: datetime = None,
-                        log_to: datetime = None,
-                        log_path: Path | str = LOGGING_FILE_PATH) -> BytesIO:
+                        log_to: datetime = None) -> BytesIO:
     """
     Extract and return all entries in the logging file *log_path*.
 
@@ -86,22 +103,18 @@ def logging_get_entries(errors: list[str],
     :param log_level: the logging level (defaults to all levels)
     :param log_from: the initial timestamp (defaults to unspecified)
     :param log_to: the finaL timestamp (defaults to unspecified)
-    :param log_path: the path of the log file
     :return: the logging entries meeting the specified criteria
     """
-    # inicializa variável de retorno
+    # initialize the return variable
     result: BytesIO | None = None
 
-    # obtain the logging level
-    # noinspection PyTypeChecker
-
-    filepath: Path = Path(log_path)
+    filepath: Path = Path(LOGGING_FILE_PATH)
     # does the log file exist ?
-    if not isinstance(filepath, Path) or not filepath.exists():
+    if not filepath.exists():
         # no, report the error
         errors.append(f"File '{filepath}' not found")
 
-    # any error ?
+    # errors ?
     if not errors:
         # no, proceed
         result = BytesIO()
@@ -112,7 +125,7 @@ def logging_get_entries(errors: list[str],
                                               maxsplit=3)
                 # noinspection PyTypeChecker
                 msg_level: int = CRITICAL if len(items) < 2 \
-                                 else __get_logging_level(level=items[2])
+                                 else __get_logging_level(level=items[2].lower())
                 # 'not log_level' works for both values 'NOTSET' and 'None'
                 if not log_level or msg_level >= log_level:
                     if len(items) > 1 and (log_from or log_to):
@@ -128,24 +141,21 @@ def logging_get_entries(errors: list[str],
     return result
 
 
-def logging_send_entries(request: Request) -> Response:
+def logging_send_entries(scheme: dict[str, Any]) -> Response:
     """
     Retrieve from the log file, and send in response, the entries matching the criteria specified.
 
-    These criteria are specified as imput parameters of the HTTP request, according to the pattern
-    *attach=<[t,true,f,false]>&log-path=<log-path>&level=<log-level>&
-     from-datetime=YYYYMMDDhhmmss&to-datetime=YYYYMMDDhhmmss&last-days=<n>&last-hours=<n>>*
+    These parameters, used to filter the records to be returned, are specified according to the pattern
+    *attach=<[t,true,f,false]>&log-level=<notset|debug|info|warning|error|critical>&
+    log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
+        - *log-attach*: whether browser should display or persist file (defaults to True - persist it)
+        - *log-level*: the logging level of the entries (defaults to *notset*, meaning all levels:)
+        - *log-from-datetime*: the start timestamp
+        - log-to-datetime*: the finish timestamp
+        - *log-last-days*: how many days before current date
+        - *log-last-hours*: how may hours before current time
 
-    All criteria are optional:
-        - *attach*: whether browser should display or persist file (defaults to True - persist it)
-        - *log-path*: the path of the log file (defaults to LOGGING_FILE_PATH)
-        - *level*: the logging level of the entries
-        - *from-datetime*: the start timestamp
-        - to-datetime*: the finish timestamp
-        - *last-days*: how many days before current date
-        - *last-hours*: how may hours before current time
-
-    :param request: the 'Request' object
+    :param scheme: the criteria for filtering the records to be returned
     :return: file containing the log entries requested on success, or incidental errors on fail
     """
     # declare the return variable
@@ -154,11 +164,8 @@ def logging_send_entries(request: Request) -> Response:
     # initialize the error messages list
     errors: list[str] = []
 
-    # obtain the request parameters
-    scheme: dict = http_get_parameters(request=request)
-
     # obtain the logging level
-    log_level: int = str_get_positional(source=scheme.get("level"),
+    log_level: int = str_get_positional(source=scheme.get("level", "N")[:1].upper(),
                                         list_origin=["N", "D", "I", "W", "E", "C"],
                                         list_dest=[0, 10, 20, 30, 40, 50])
 
@@ -175,17 +182,12 @@ def logging_send_entries(request: Request) -> Response:
         if offset_days or offset_hours:
             log_from = datetime.now() - timedelta(days=offset_days,
                                                   hours=offset_hours)
-
-    # obtain the path for the log file
-    log_path: Path | str = scheme.get("log-path", LOGGING_FILE_PATH)
-
     # retrieve the log entries
     log_entries: BytesIO = logging_get_entries(errors=errors,
                                                log_level=log_level,
                                                log_from=log_from,
-                                               log_to=log_to,
-                                               log_path=log_path)
-    # any error ?
+                                               log_to=log_to)
+    # errors ?
     if not errors:
         # no, return the log entries requested
         base: str = "entries"
@@ -339,6 +341,75 @@ def logging_log_critical(msg: str,
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
+# @app.route(rule="/logging",
+#            methods=["GET", "POST"])
+def logging_service() -> Response:
+    """
+    Entry pointy for configuring and retrieving the execution log of the system.
+
+    The optional *GET* criteria, used to filter the records to be returned, are specified according
+    to the pattern *attach=<[t,true,f,false]>&log-level=<notset|debug|info|warning|error|critical>&
+    log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
+        - *log-attach*: whether browser should display or persist file (defaults to True - persist it)
+        - *log-level*: the logging level of the entries (defaults to *notset*, meaning all levels)
+        - *log-from-datetime*: the start timestamp
+        - log-to-datetime*: the finish timestamp
+        - *log-last-days*: how many days before current date
+        - *log-last-hours*: how may hours before current time
+    The *POST* query parameters are also optional, and are used for configuring a re-started logger:
+        - log-id: the id of the logger
+        - log-file-path: path for the log file
+        - log-file-mode: the mode for log file opening (a- append, w- truncate)
+        - log-format: the information and formats to be written to the log
+        - log-level: the loggin level (*notse*, *debug*, *info*, *warning*, *error*, *critical*)
+        - log-style: the style used for building the 'log-format' parameter
+
+    :return: the requested log data, on 'GET', and the operation status, on 'POST'
+    """
+    # register the request
+    req_query: str = request.query_string.decode()
+    logging_log_info(f"Request {request.path}?{req_query}")
+
+    # obtain the request parameters
+    scheme: dict = http_get_parameters(request=request)
+
+    # run the request
+    result: Response
+    if request.method == "GET":
+        result = logging_send_entries(scheme=scheme)
+    else:
+        logging_startup(scheme=scheme)
+        result = Response(status=200)
+
+    # log the response
+    logging_log_info(f"Response {request.path}?{req_query}: {result}")
+
+    return result
+
+
+def __get_logging_level(level: Literal["debug", "info", "warning", "error", "critical"]) -> int:
+    """
+    Translate the log severity string *level* into the logging's internal severity value.
+
+    :param level: the string log severity
+    :return: the internal logging severity value
+    """
+    result: int | None
+    match level:
+        case "debug":
+            result = DEBUG          # 10
+        case "info":
+            result = INFO           # 20
+        case "warning":
+            result = WARNING        # 30
+        case "error":
+            result = ERROR          # 40
+        case "critical":
+            result = CRITICAL       # 50
+        case _:
+            result = NOTSET         # 0
+
+    return result
 
 def __write_to_output(msg: str,
                       output_dev: TextIO) -> None:
