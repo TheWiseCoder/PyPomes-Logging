@@ -215,8 +215,7 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
 
 def logging_log_msgs(msgs: str | list[str],
                      output_dev: TextIO = None,
-                     log_level: int = ERROR,
-                     logger: logging.Logger = PYPOMES_LOGGER) -> None:
+                     log_level: int = ERROR) -> None:
     """
     Write all messages in *msgs* to *logger*'s logging file, and to *output_dev*.
 
@@ -225,21 +224,20 @@ def logging_log_msgs(msgs: str | list[str],
     :param msgs: the messages list
     :param output_dev: output device where the message is to be printed (None for no device printing)
     :param log_level: the logging level, defaults to 'error' (None for no logging)
-    :param logger: the logger to use
     """
     # define the log writer
     log_writer: callable = None
     match log_level:
         case "debug":
-            log_writer = logger.debug
+            log_writer = PYPOMES_LOGGER.debug
         case "info":
-            log_writer = logger.info
+            log_writer = PYPOMES_LOGGER.info
         case "warning":
-            log_writer = logger.warning
+            log_writer = PYPOMES_LOGGER.warning
         case "error":
-            log_writer = logger.error
+            log_writer = PYPOMES_LOGGER.error
         case "critical":
-            log_writer = logger.critical
+            log_writer = PYPOMES_LOGGER.critical
 
     # traverse the messages list
     msg_list: list[str] = [msgs] if isinstance(msgs, str) else msgs
@@ -254,8 +252,8 @@ def logging_log_msgs(msgs: str | list[str],
                           output_dev=output_dev)
 
 
-def logging_log_debug(msg: str, output_dev: TextIO = None,
-                      logger: logging.Logger = PYPOMES_LOGGER) -> None:
+def logging_log_debug(msg: str,
+                      output_dev: TextIO = None) -> None:
     """
     Write debug-level message *msg* to *logger*'s logging file, and to *output_dev*.
 
@@ -263,17 +261,15 @@ def logging_log_debug(msg: str, output_dev: TextIO = None,
 
     :param msg: the message to log
     :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param logger: the logger to use
     """
     # log the message
-    logger.debug(msg=msg)
+    PYPOMES_LOGGER.debug(msg=msg)
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
 
 def logging_log_info(msg: str,
-                     output_dev: TextIO = None,
-                     logger: logging.Logger = PYPOMES_LOGGER) -> None:
+                     output_dev: TextIO = None) -> None:
     """
     Write info-level message *msg* to *logger*'s logging file, and to *output_dev*.
 
@@ -281,17 +277,15 @@ def logging_log_info(msg: str,
 
     :param msg: the message to log
     :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param logger: the logger to use
     """
     # log the message
-    logger.info(msg=msg)
+    PYPOMES_LOGGER.info(msg=msg)
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
 
 def logging_log_warning(msg: str,
-                        output_dev: TextIO = None,
-                        logger: logging.Logger = PYPOMES_LOGGER) -> None:
+                        output_dev: TextIO = None) -> None:
     """
     Write warning-level message *msg* to *logger*'s logging file, and to *output_dev*.
 
@@ -299,17 +293,15 @@ def logging_log_warning(msg: str,
 
     :param msg: the message to log
     :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param logger: the logger to use
     """
     # log the message
-    logger.warning(msg=msg)
+    PYPOMES_LOGGER.warning(msg=msg)
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
 
 def logging_log_error(msg: str,
-                      output_dev: TextIO = None,
-                      logger: logging.Logger = PYPOMES_LOGGER) -> None:
+                      output_dev: TextIO = None) -> None:
     """
     Write error-level message *msg* to *logger*'s logging file, and to *output_dev*.
 
@@ -317,17 +309,15 @@ def logging_log_error(msg: str,
 
     :param msg: the message to log
     :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param logger: the logger to use
     """
     # log the message
-    logger.error(msg=msg)
+    PYPOMES_LOGGER.error(msg=msg)
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
 
 def logging_log_critical(msg: str,
-                         output_dev: TextIO = None,
-                         logger: logging.Logger = PYPOMES_LOGGER) -> None:
+                         output_dev: TextIO = None) -> None:
     """
     Write critical-level message *msg* to *logger*'s logging file, and to *output_dev*.
 
@@ -335,10 +325,9 @@ def logging_log_critical(msg: str,
 
     :param msg: the message to log
     :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param logger: the logger to use
     """
     # log the message
-    logger.critical(msg=msg)
+    PYPOMES_LOGGER.critical(msg=msg)
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
