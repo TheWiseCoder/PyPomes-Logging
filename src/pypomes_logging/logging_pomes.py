@@ -10,8 +10,10 @@ from pypomes_core import (
     env_get_str, env_get_path, datetime_parse, str_get_positional
 )
 from pypomes_http import http_get_parameters
-from typing import Any, Literal, TextIO
+from typing import Any, Final, Literal, TextIO
 
+LOGGING_DEFAULT_STYLE: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
+                                     "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
 LOGGING_ID: str | None = None
 LOGGING_LEVEL: int | None = None
 LOGGING_FORMAT: str | None = None
@@ -47,16 +49,15 @@ def logging_startup(scheme: dict[str, Any] = None,
     global LOGGING_FORMAT
     LOGGING_FORMAT= scheme.get("log-format",
                                env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                           def_value=("{asctime} {levelname:1.1} {thread:5d} "
-                                                      "{module:20.20} {funcName:20.20} {lineno:3d} {message}")))
+                                           def_value=LOGGING_DEFAULT_STYLE))
     global LOGGING_STYLE
     LOGGING_STYLE = scheme.get("log-style",
                                env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
                                            def_value="{"))
     global LOGGING_FILE_PATH
-    LOGGING_FILE_PATH = scheme.get("log-file-path",
-                                   env_get_path(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                                def_value=TEMP_FOLDER / f"{APP_PREFIX}.log"))
+    LOGGING_FILE_PATH = env_get_path(scheme.get("log-file-path",
+                                                f"{APP_PREFIX}_LOGGING_FILE_PATH"),
+                                     def_value=TEMP_FOLDER / f"{APP_PREFIX}.log")
     global LOGGING_FILE_MODE
     LOGGING_FILE_MODE = scheme.get("log-file-mode",
                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
@@ -94,9 +95,9 @@ def logging_get_entries(errors: list[str],
                         log_from: datetime = None,
                         log_to: datetime = None) -> BytesIO:
     """
-    Extract and return all entries in the logging file *log_path*.
+    Extract and return entries in the logging file *log_path*.
 
-    It is expected for this logging file to be compliant with *PYPOMES_LOGGER*'s default format.
+    It is expected for this logging file to be compliant with *PYPOMES_LOGGER*'s *LOGGING_DEFAULT_STYLE*.
     The extraction meets the criteria specified by *log_level*, and by the inclusive interval *[log_from, log_to]*.
 
     :param errors: incidental error messages
@@ -108,23 +109,23 @@ def logging_get_entries(errors: list[str],
     # initialize the return variable
     result: BytesIO | None = None
 
-    filepath: Path = Path(LOGGING_FILE_PATH)
-    # does the log file exist ?
-    if not filepath.exists():
-        # no, report the error
-        errors.append(f"File '{filepath}' not found")
-
+    # verify whether inspecting the log entries is possible
+    if LOGGING_STYLE != LOGGING_DEFAULT_STYLE and \
+       (log_level or log_from or log_to):
+        errors.append("It is not possible to apply level "
+                      "or timestamp criteria to filter log entries")
     # errors ?
     if not errors:
         # no, proceed
         result = BytesIO()
+        filepath: Path = Path(LOGGING_FILE_PATH)
         with (filepath.open() as f):
             line: str = f.readline()
             while line:
                 items: list[str] = line.split(sep=None,
                                               maxsplit=3)
                 # noinspection PyTypeChecker
-                msg_level: int = CRITICAL if len(items) < 2 \
+                msg_level: int = CRITICAL if not log_level or len(items) < 2 \
                                  else __get_logging_level(level=items[2].lower())
                 # 'not log_level' works for both values 'NOTSET' and 'None'
                 if not log_level or msg_level >= log_level:
