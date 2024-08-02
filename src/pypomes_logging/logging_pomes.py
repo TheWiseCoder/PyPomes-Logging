@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, Response, request, send_file
+from flask import Response, request, send_file
 from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
 from io import BytesIO
 from pathlib import Path
@@ -24,16 +24,14 @@ LOGGING_FILE_MODE: str | None = None
 PYPOMES_LOGGER: logging.Logger | None = None
 
 
-def logging_startup(scheme: dict[str, Any] = None,
-                    flask_app: Flask = None) -> None:
+def logging_startup(scheme: dict[str, Any] = None) -> None:
     """
-    Start or re-start the log service.
+    Start or restart the log service.
 
-    The parameters for starting the log can be found either as environment variables, or as
+    The parameters for configuring the log can be found either as environment variables, or as
     attributes in *scheme*. Default values are used, if necessary.
 
     :param scheme: optional roll of log parameters and corresponding values
-    :param flask_app: the *Flask* application object
     """
     scheme = scheme or {}
 
@@ -62,7 +60,7 @@ def logging_startup(scheme: dict[str, Any] = None,
     try:
         LOGGING_FILE_PATH = Path(scheme.get("log-file-path",
                                             env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH")))
-    except:
+    except TypeError:
         LOGGING_FILE_PATH = TEMP_FOLDER / f"{APP_PREFIX}.log"
 
     force: bool
@@ -88,13 +86,6 @@ def logging_startup(scheme: dict[str, Any] = None,
                         force=force)
     for _handler in logging.root.handlers:
         _handler.addFilter(filter=logging.Filter(__LOGGING_ID))
-
-    # establish the logging service endpoint
-    if flask_app:
-        flask_app.add_url_rule(rule="/logging",
-                               endpoint="logging",
-                               view_func=logging_service,
-                               methods=["GET", "POST"])
 
 
 def logging_get_entries(errors: list[str],
@@ -154,8 +145,7 @@ def logging_get_entries(errors: list[str],
 
 def logging_send_entries(scheme: dict[str, Any]) -> Response:
     """
-    Retrieve from the log file, and send in response,
-    the entries matching the criteria specified in *scheme*.
+    Retrieve from the log file, and send in response, the entries matching the criteria specified in *scheme*.
 
     :param scheme: the criteria for filtering the records to be returned
     :return: file containing the log entries requested
@@ -414,3 +404,7 @@ def __write_to_output(msg: str,
         if output_dev.name.startswith("<std"):
             # yes, skip to the next line
             output_dev.write("\n")
+
+
+# initialize the logger
+logging_startup()

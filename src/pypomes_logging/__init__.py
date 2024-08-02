@@ -5,6 +5,7 @@ from .logging_pomes import (
     logging_startup, logging_get_entries, logging_send_entries,
     logging_log_msgs, logging_log_debug, logging_log_error,
     logging_log_info, logging_log_critical, logging_log_warning,
+    logging_service
 )
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "logging_startup", "logging_get_entries", "logging_send_entries",
     "logging_log_msgs", "logging_log_debug", "logging_log_error",
     "logging_log_info", "logging_log_critical", "logging_log_warning",
+    "logging_service"
 ]
 
 from importlib.metadata import version
