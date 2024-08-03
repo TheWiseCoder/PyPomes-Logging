@@ -19,7 +19,7 @@ LOGGING_LEVEL: int | None = None
 LOGGING_FORMAT: str | None = None
 LOGGING_STYLE: str | None = None
 LOGGING_DATE_FORMAT: str | None = None
-LOGGING_FILE_PATH: str | None = None
+LOGGING_FILE_PATH: Path | None = None
 LOGGING_FILE_MODE: str | None = None
 PYPOMES_LOGGER: logging.Logger | None = None
 
@@ -39,7 +39,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     # noinspection PyTypeChecker
     LOGGING_LEVEL = __get_logging_level(level=scheme.get("log-level",
                                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                                     def_value="info").lower()))
+                                                                     def_value="debug").lower()))
     global LOGGING_FORMAT
     LOGGING_FORMAT = scheme.get("log-format",
                                 env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
@@ -63,17 +63,17 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     except TypeError:
         LOGGING_FILE_PATH = TEMP_FOLDER / f"{APP_PREFIX}.log"
 
-    force: bool
+    force_reset: bool
     global PYPOMES_LOGGER
     # is there a logger ?
     if PYPOMES_LOGGER:
         # yes, shut it down
         logging.shutdown()
-        force = True
+        force_reset = True
     else:
         # no, start it
         PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
-        force = False
+        force_reset = False
 
     # configure the logger
     # noinspection PyTypeChecker
@@ -83,7 +83,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
                         datefmt=LOGGING_DATE_FORMAT,
                         style=LOGGING_STYLE,
                         level=LOGGING_LEVEL,
-                        force=force)
+                        force=force_reset)
     for _handler in logging.root.handlers:
         _handler.addFilter(filter=logging.Filter(__LOGGING_ID))
 
@@ -157,18 +157,16 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     errors: list[str] = []
 
     # obtain the logging level
-    log_level: int = str_get_positional(source=scheme.get("level", "N")[:1].upper(),
-                                        list_origin=["N", "D", "I", "W", "E", "C"],
-                                        list_dest=[0, 10, 20, 30, 40, 50])
+    log_level: int = str_get_positional(source=scheme.get("log-level", "debug")[:1].upper(),
+                                        list_origin=["debug", "info", "warning", "error", "critical"],
+                                        list_dest=[10, 20, 30, 40, 50])
+    # obtain the  timestamps
+    log_from: datetime = datetime_parse(dt_str=scheme.get("log-from-datetime"))
+    log_to: datetime = datetime_parse(dt_str=scheme.get("log-to-datetime"))
 
-    # obtain the initial and final timestamps
-    log_from: datetime = datetime_parse(dt_str=scheme.get("from-datetime"))
-    log_to: datetime = datetime_parse(dt_str=scheme.get("to-datetime"))
-
-    # if 'from' and 'to' were not specified, try 'last-days' and 'last-hours'
     if not log_from and not log_to:
-        last_days: str = scheme.get("last-days", "0")
-        last_hours: str = scheme.get("last-hours", "0")
+        last_days: str = scheme.get("log-last-days", "0")
+        last_hours: str = scheme.get("log-last-hours", "0")
         offset_days: int = int(last_days) if last_days.isdigit() else 0
         offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
         if offset_days or offset_hours:
@@ -188,7 +186,7 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
         if log_to:
            base += f"-to_{log_to.strftime(format=DATETIME_FORMAT_COMPACT)}"
         log_file = f"log_{base}.log"
-        param: str = scheme.get("attach", "true")
+        param: str = scheme.get("log-attach", "true")
         attach: bool = not (isinstance(param, str) and param.lower() in ["0", "f", "false"])
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
@@ -329,16 +327,16 @@ def logging_service() -> Response:
     Entry pointy for configuring and retrieving the execution log of the system.
 
     The optional *GET* criteria, used to filter the records to be returned, are specified according
-    to the pattern *attach=<[t,true,f,false]>&log-level=<notset|debug|info|warning|error|critical>&
+    to the pattern *attach=<[t,true,f,false]>&log-level=<debug|info|warning|error|critical>&
     log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
         - *log-attach*: whether browser should display or persist file (defaults to True - persist it)
-        - *log-level*: the logging level of the entries (defaults to *notset*, meaning all levels)
+        - *log-level*: the logging level of the entries (defaults to *info*)
         - *log-from-datetime*: the start timestamp
         - log-to-datetime*: the finish timestamp
         - *log-last-days*: how many days before current date
         - *log-last-hours*: how may hours before current time
     The *POST* query parameters are also optional, and are used for configuring a re-started logger:
-        - *log-level*: the loggin level (*notset*, *debug*, *info*, *warning*, *error*, *critical*)
+        - *log-level*: the loggin level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-file-path*: path for the log file
         - *log-file-mode*: the mode for log file opening (a- append, w- truncate)
         - *log-format*: the information and formats to be written to the log
