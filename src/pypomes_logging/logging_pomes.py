@@ -13,7 +13,7 @@ from pypomes_http import http_get_parameters
 from sys import exc_info, stderr
 from typing import Any, Final, Literal, TextIO
 
-__LOGGING_ID: Final[str] = APP_PREFIX
+__LOGGING_ID: Final[str] = APP_PREFIX or "_L"
 __LOGGING_DEFAULT_STYLE: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
                                        "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
 LOGGING_LEVEL: int | None = None
@@ -21,7 +21,7 @@ LOGGING_FORMAT: str | None = None
 LOGGING_STYLE: str | None = None
 LOGGING_DATE_FORMAT: str | None = None
 LOGGING_FILE_MODE: str | None = None
-LOGGING_FILE_PATH: Path = TEMP_FOLDER / f"{APP_PREFIX}.log"
+LOGGING_FILE_PATH: Path | None = None
 PYPOMES_LOGGER: logging.Logger | None = None
 
 
@@ -44,23 +44,29 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
     try:
         # noinspection PyTypeChecker
         logging_level: int = __get_logging_level(level=scheme.get("log-level",
-                                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                                              def_value="debug").lower()))
+                                                                  LOGGING_LEVEL or
+                                                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                                                def_value="debug").lower()))
         logging_format: str = scheme.get("log-format",
-                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                                     def_value=__LOGGING_DEFAULT_STYLE))
+                                         LOGGING_FORMAT or
+                                           env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                                       def_value=__LOGGING_DEFAULT_STYLE))
         logging_style: str = scheme.get("log-style",
-                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
-                                                    def_value="{"))
+                                        LOGGING_STYLE or
+                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                                      def_value="{"))
         logging_date_format: str = scheme.get("log-date-format",
-                                              env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
-                                                          def_value=DATETIME_FORMAT_INV))
+                                              LOGGING_DATE_FORMAT or
+                                                env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
+                                                            def_value=DATETIME_FORMAT_INV))
         logging_file_mode: str = scheme.get("log-file-mode",
-                                            env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
-                                                        def_value="a"))
+                                            LOGGING_FILE_MODE or
+                                              env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
+                                                          def_value="a"))
         logging_file_path: Path = Path(scheme.get("log-file-path",
-                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH")))
-
+                                       LOGGING_FILE_PATH or
+                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
+                                                     def_value=f"{TEMP_FOLDER}/{APP_PREFIX}.log")))
         LOGGING_LEVEL = logging_level
         LOGGING_FORMAT = logging_format
         LOGGING_STYLE = logging_style
@@ -347,13 +353,14 @@ def logging_service() -> Response:
         - *log-last-days*: how many days before current date
         - *log-last-hours*: how may hours before current time
     The *POST* operation configures and starts/restarts the logger.
-    These are the optional query parameters (missing parameters are obtained from environment variables):
+    These are the optional query parameters:
         - *log-level*: the loggin level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-file-path*: path for the log file
         - *log-file-mode*: the mode for log file opening (a- append, w- truncate)
         - *log-format*: the information and formats to be written to the log
         - *log-style*: the style used for building the 'log-format' parameter
         - *log-date-format*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
+    For omitted parameters, current existing parameter values are used, or obtained from environment variables.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
     """
@@ -382,27 +389,30 @@ def logging_service() -> Response:
     return result
 
 
-def __get_logging_level(level: Literal["debug", "info", "warning", "error", "critical"]) -> int:
+def __get_logging_level(level: int | Literal["debug", "info", "warning", "error", "critical"]) -> int:
     """
     Translate the log severity string *level* into the logging's internal severity value.
 
     :param level: the string log severity
     :return: the internal logging severity value
     """
-    result: int | None
-    match level:
-        case "debug":
-            result = DEBUG          # 10
-        case "info":
-            result = INFO           # 20
-        case "warning":
-            result = WARNING        # 30
-        case "error":
-            result = ERROR          # 40
-        case "critical":
-            result = CRITICAL       # 50
-        case _:
-            result = NOTSET         # 0
+    result: int
+    if isinstance(level, int):
+        result = level
+    else:
+        match level:
+            case "debug":
+                result = DEBUG          # 10
+            case "info":
+                result = INFO           # 20
+            case "warning":
+                result = WARNING        # 30
+            case "error":
+                result = ERROR          # 40
+            case "critical":
+                result = CRITICAL       # 50
+            case _:
+                result = NOTSET         # 0
 
     return result
 
