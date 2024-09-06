@@ -1,15 +1,16 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Response, request, send_file
+from flask import Response, jsonify, request, send_file
 from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
 from io import BytesIO
 from pathlib import Path
 from pypomes_core import (
     APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, DATETIME_FORMAT_COMPACT,
-    env_get_str, datetime_parse, str_get_positional
+    env_get_str, exc_format, datetime_parse, str_get_positional
 )
 from pypomes_http import http_get_parameters
+from sys import exc_info, stderr
 from typing import Any, Final, Literal, TextIO
 
 __LOGGING_ID: Final[str] = APP_PREFIX
@@ -19,73 +20,83 @@ LOGGING_LEVEL: int | None = None
 LOGGING_FORMAT: str | None = None
 LOGGING_STYLE: str | None = None
 LOGGING_DATE_FORMAT: str | None = None
-LOGGING_FILE_PATH: Path | None = None
 LOGGING_FILE_MODE: str | None = None
+LOGGING_FILE_PATH: Path = TEMP_FOLDER / f"{APP_PREFIX}.log"
 PYPOMES_LOGGER: logging.Logger | None = None
 
 
-def logging_startup(scheme: dict[str, Any] = None) -> None:
+def logging_startup(scheme: dict[str, Any] = None) -> str:
     """
     Start or restart the log service.
 
     The parameters for configuring the log can be found either as environment variables, or as
     attributes in *scheme*. Default values are used, if necessary.
 
-    :param scheme: optional roll of log parameters and corresponding values
+    :param scheme: optional log parameters and corresponding values
     """
+    # initialize the return variable
+    result: str | None = None
+
     scheme = scheme or {}
+    global LOGGING_LEVEL, LOGGING_FORMAT, LOGGING_STYLE, \
+           LOGGING_DATE_FORMAT, LOGGING_FILE_MODE, LOGGING_FILE_PATH, PYPOMES_LOGGER
 
-    global LOGGING_LEVEL
-    # noinspection PyTypeChecker
-    LOGGING_LEVEL = __get_logging_level(level=scheme.get("log-level",
-                                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                                     def_value="debug").lower()))
-    global LOGGING_FORMAT
-    LOGGING_FORMAT = scheme.get("log-format",
-                                env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                            def_value=__LOGGING_DEFAULT_STYLE))
-    global LOGGING_STYLE
-    LOGGING_STYLE = scheme.get("log-style",
-                               env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
-                                           def_value="{"))
-    global LOGGING_DATE_FORMAT
-    LOGGING_DATE_FORMAT = scheme.get("log-date-format",
-                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
-                                                 def_value=DATETIME_FORMAT_INV))
-    global LOGGING_FILE_MODE
-    LOGGING_FILE_MODE = scheme.get("log-file-mode",
-                                   env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
-                                               def_value="a"))
-    global LOGGING_FILE_PATH
     try:
-        LOGGING_FILE_PATH = Path(scheme.get("log-file-path",
-                                            env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH")))
-    except TypeError:
-        LOGGING_FILE_PATH = TEMP_FOLDER / f"{APP_PREFIX}.log"
+        # noinspection PyTypeChecker
+        logging_level: int = __get_logging_level(level=scheme.get("log-level",
+                                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                                              def_value="debug").lower()))
+        logging_format: str = scheme.get("log-format",
+                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                                     def_value=__LOGGING_DEFAULT_STYLE))
+        logging_style: str = scheme.get("log-style",
+                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                                    def_value="{"))
+        logging_date_format: str = scheme.get("log-date-format",
+                                              env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
+                                                          def_value=DATETIME_FORMAT_INV))
+        logging_file_mode: str = scheme.get("log-file-mode",
+                                            env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
+                                                        def_value="a"))
+        logging_file_path: Path = Path(scheme.get("log-file-path",
+                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH")))
 
-    force_reset: bool
-    global PYPOMES_LOGGER
-    # is there a logger ?
-    if PYPOMES_LOGGER:
-        # yes, shut it down
-        logging.shutdown()
-        force_reset = True
-    else:
-        # no, start it
-        PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
-        force_reset = False
+        LOGGING_LEVEL = logging_level
+        LOGGING_FORMAT = logging_format
+        LOGGING_STYLE = logging_style
+        LOGGING_DATE_FORMAT = logging_date_format
+        LOGGING_FILE_MODE = logging_file_mode
+        LOGGING_FILE_PATH = logging_file_path
+    except Exception as e:
+        result = exc_format(exc=e,
+                            exc_info=exc_info())
+    # error ?
+    if not result:
+        # no, proceed
+        force_reset: bool
+        # is there a logger ?
+        if PYPOMES_LOGGER:
+            # yes, shut it down
+            logging.shutdown()
+            force_reset = True
+        else:
+            # no, start it
+            PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
+            force_reset = False
 
-    # configure the logger
-    # noinspection PyTypeChecker
-    logging.basicConfig(filename=LOGGING_FILE_PATH,
-                        filemode=LOGGING_FILE_MODE,
-                        format=LOGGING_FORMAT,
-                        datefmt=LOGGING_DATE_FORMAT,
-                        style=LOGGING_STYLE,
-                        level=LOGGING_LEVEL,
-                        force=force_reset)
-    for _handler in logging.root.handlers:
-        _handler.addFilter(filter=logging.Filter(__LOGGING_ID))
+        # configure the logger
+        # noinspection PyTypeChecker
+        logging.basicConfig(filename=LOGGING_FILE_PATH,
+                            filemode=LOGGING_FILE_MODE,
+                            format=LOGGING_FORMAT,
+                            datefmt=LOGGING_DATE_FORMAT,
+                            style=LOGGING_STYLE,
+                            level=LOGGING_LEVEL,
+                            force=force_reset)
+        for _handler in logging.root.handlers:
+            _handler.addFilter(filter=logging.Filter(__LOGGING_ID))
+
+    return result
 
 
 def logging_get_entries(errors: list[str],
@@ -335,7 +346,8 @@ def logging_service() -> Response:
         - log-to-datetime*: the finish timestamp
         - *log-last-days*: how many days before current date
         - *log-last-hours*: how may hours before current time
-    The *POST* query parameters are also optional, and are used for configuring a re-started logger:
+    The *POST* operation configures and starts/restarts the logger.
+    These are the optional query parameters (missing parameters are obtained from environment variables):
         - *log-level*: the loggin level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-file-path*: path for the log file
         - *log-file-mode*: the mode for log file opening (a- append, w- truncate)
@@ -357,8 +369,12 @@ def logging_service() -> Response:
     if request.method == "GET":
         result = logging_send_entries(scheme=scheme)
     else:
-        logging_startup(scheme=scheme)
-        result = Response(status=200)
+        reply: str = logging_startup(scheme=scheme)
+        if reply:
+            result = jsonify({"errors": [reply]})
+            result.status_code = 400
+        else:
+            result = Response(status=200)
 
     # log the response
     logging_log_info(f"Response {request.path}?{req_query}: {result}")
@@ -405,4 +421,7 @@ def __write_to_output(msg: str,
 
 
 # initialize the logger
-logging_startup()
+__reply: str = logging_startup()
+if __reply:
+    stderr.write(__reply + "\n")
+
