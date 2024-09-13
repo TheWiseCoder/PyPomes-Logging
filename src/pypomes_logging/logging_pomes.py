@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 from datetime import datetime, timedelta
@@ -6,10 +7,9 @@ from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 
 from io import BytesIO
 from pathlib import Path
 from pypomes_core import (
-    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, DATETIME_FORMAT_COMPACT,
+    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER,
     env_get_str, exc_format, datetime_parse, str_get_positional
 )
-from pypomes_http import http_get_parameters
 from sys import exc_info, stderr
 from typing import Any, Final, Literal, TextIO
 
@@ -59,11 +59,11 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
                                               LOGGING_DATE_FORMAT or
                                                 env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
                                                             def_value=DATETIME_FORMAT_INV))
-        logging_file_mode: str = scheme.get("log-file-mode",
+        logging_file_mode: str = scheme.get("log-filemode",
                                             LOGGING_FILE_MODE or
                                               env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
                                                           def_value="a"))
-        logging_file_path: Path = Path(scheme.get("log-file-path",
+        logging_file_path: Path = Path(scheme.get("log-filepath",
                                        LOGGING_FILE_PATH or
                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
                                                      def_value=f"{TEMP_FOLDER}/{APP_PREFIX}.log")))
@@ -197,18 +197,11 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     # errors ?
     if not errors:
         # no, return the log entries requested
-        base: str = "entries"
-        if log_from:
-           base += f"-from_{log_from.strftime(format=DATETIME_FORMAT_COMPACT)}"
-        if log_to:
-           base += f"-to_{log_to.strftime(format=DATETIME_FORMAT_COMPACT)}"
-        log_file = f"log_{base}.log"
-        param: str = scheme.get("log-attach", "true")
-        attach: bool = not (isinstance(param, str) and param.lower() in ["0", "f", "false"])
+        log_file = scheme.get("log-filename")
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
                            mimetype="text/plain",
-                           as_attachment=attach,
+                           as_attachment=log_file is not None,
                            download_name=log_file)
     else:
         # yes, report the failure
@@ -337,16 +330,16 @@ def logging_log_critical(msg: str,
     __write_to_output(msg=msg,
                       output_dev=output_dev)
 
-# @app.route(rule="/logging",
-#            methods=["GET", "POST"])
+# @flask_app.route(rule="/logging",
+#                  methods=["GET", "POST"])
 def logging_service() -> Response:
     """
     Entry pointy for configuring and retrieving the execution log of the system.
 
     The optional *GET* criteria, used to filter the records to be returned, are specified according
-    to the pattern *attach=<[t,true,f,false]>&log-level=<debug|info|warning|error|critical>&
+    to the pattern *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
     log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
-        - *log-attach*: whether browser should display or persist file (defaults to True - persist it)
+        - *log-filename*: the filename for downloading the data (if omitted, browser displays the data)
         - *log-level*: the logging level of the entries (defaults to *info*)
         - *log-from-datetime*: the start timestamp
         - log-to-datetime*: the finish timestamp
@@ -355,8 +348,8 @@ def logging_service() -> Response:
     The *POST* operation configures and starts/restarts the logger.
     These are the optional query parameters:
         - *log-level*: the loggin level (*debug*, *info*, *warning*, *error*, *critical*)
-        - *log-file-path*: path for the log file
-        - *log-file-mode*: the mode for log file opening (a- append, w- truncate)
+        - *log-filepath*: path for the log file
+        - *log-filemode*: the mode for log file opening (a- append, w- truncate)
         - *log-format*: the information and formats to be written to the log
         - *log-style*: the style used for building the 'log-format' parameter
         - *log-date-format*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
@@ -369,7 +362,12 @@ def logging_service() -> Response:
     logging_log_info(f"Request {request.path}?{req_query}")
 
     # obtain the request parameters
-    scheme: dict = http_get_parameters(request=request)
+    scheme: dict[str, Any] = {}
+    # attempt to retrieve the JSON data in body
+    with contextlib.suppress(Exception):
+        scheme.update(request.get_json())
+    # obtain parameters in URL query
+    scheme.update(request.values)
 
     # run the request
     result: Response
