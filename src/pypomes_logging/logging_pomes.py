@@ -1,4 +1,3 @@
-import atexit
 import contextlib
 import json
 import logging
@@ -104,7 +103,6 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
     return result
 
 
-@atexit.register
 def logging_shutdown() -> None:
     """
     Invoke this function at shutdown.
