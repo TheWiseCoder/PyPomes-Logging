@@ -15,20 +15,20 @@ from sys import exc_info, stderr
 from typing import Any, Final, Literal, TextIO
 
 __LOGGING_ID: Final[str] = APP_PREFIX or "_L"
-__LOGGING_DEFAULT_STYLE: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
-                                       "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
+__LOGGING_DEFAULT_FORMAT: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
+                                        "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
 LOGGING_LEVEL: int | None = None
 LOGGING_FORMAT: str | None = None
 LOGGING_STYLE: str | None = None
-LOGGING_DATE_FORMAT: str | None = None
-LOGGING_FILE_MODE: str | None = None
-LOGGING_FILE_PATH: Path | None = None
+LOGGING_DATETIME: str | None = None
+LOGGING_FILEMODE: str | None = None
+LOGGING_FILEPATH: Path | None = None
 PYPOMES_LOGGER: logging.Logger | None = None
 
 
 def logging_startup(scheme: dict[str, Any] = None) -> str:
     """
-    Start or restart the log service.
+    Configure/reconfigure and start/restart the log service.
 
     The parameters for configuring the log can be found either as environment variables, or as
     attributes in *scheme*. Default values are used, if necessary.
@@ -40,7 +40,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
 
     scheme = scheme or {}
     global LOGGING_LEVEL, LOGGING_FORMAT, LOGGING_STYLE, \
-           LOGGING_DATE_FORMAT, LOGGING_FILE_MODE, LOGGING_FILE_PATH, PYPOMES_LOGGER
+           LOGGING_DATETIME, LOGGING_FILEMODE, LOGGING_FILEPATH, PYPOMES_LOGGER
 
     try:
         # noinspection PyTypeChecker
@@ -50,54 +50,51 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
                                                                                 def_value="debug").lower()))
         logging_format: str = scheme.get("log-format",
                                          LOGGING_FORMAT or
-                                           env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                                       def_value=__LOGGING_DEFAULT_STYLE))
+                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                                     def_value=__LOGGING_DEFAULT_FORMAT))
         logging_style: str = scheme.get("log-style",
                                         LOGGING_STYLE or
                                           env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
                                                       def_value="{"))
-        logging_date_format: str = scheme.get("log-date-format",
-                                              LOGGING_DATE_FORMAT or
-                                                env_get_str(key=f"{APP_PREFIX}_LOGGING_DATE_FORMAT",
-                                                            def_value=DATETIME_FORMAT_INV))
+        logging_datetime_format: str = scheme.get("log-datetime",
+                                                  LOGGING_DATETIME or
+                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_DATETIME_FORMAT",
+                                                              def_value=DATETIME_FORMAT_INV))
         logging_file_mode: str = scheme.get("log-filemode",
-                                            LOGGING_FILE_MODE or
-                                              env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
+                                            LOGGING_FILEMODE or
+                                            env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
                                                           def_value="a"))
         logging_file_path: Path = Path(scheme.get("log-filepath",
-                                       LOGGING_FILE_PATH or
-                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
+                                                  LOGGING_FILEPATH or
+                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
                                                      def_value=f"{TEMP_FOLDER}/{APP_PREFIX.lower()}.log")))
         LOGGING_LEVEL = logging_level
         LOGGING_FORMAT = logging_format
         LOGGING_STYLE = logging_style
-        LOGGING_DATE_FORMAT = logging_date_format
-        LOGGING_FILE_MODE = logging_file_mode
-        LOGGING_FILE_PATH = logging_file_path
+        LOGGING_DATETIME = logging_datetime_format
+        LOGGING_FILEMODE = logging_file_mode
+        LOGGING_FILEPATH = logging_file_path
     except Exception as e:
         result = exc_format(exc=e,
                             exc_info=exc_info())
     # error ?
     if not result:
-        # no, proceed
-        force_reset: bool
-        # is there a logger ?
+        # no,  is there a logger ?
         if PYPOMES_LOGGER:
             # yes, shut it down
             logging.shutdown()
-            force_reset = True
+            force_reset: bool = True
         else:
-            # no, register its shutdown
-            atexit.register(func=logging_shutdown)
-            force_reset = False
+            # no
+            force_reset: bool = False
 
         # start and configure the logger
         PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
         # noinspection PyTypeChecker
-        logging.basicConfig(filename=LOGGING_FILE_PATH,
-                            filemode=LOGGING_FILE_MODE,
+        logging.basicConfig(filename=LOGGING_FILEPATH,
+                            filemode=LOGGING_FILEMODE,
                             format=LOGGING_FORMAT,
-                            datefmt=LOGGING_DATE_FORMAT,
+                            datefmt=LOGGING_DATETIME,
                             style=LOGGING_STYLE,
                             level=LOGGING_LEVEL,
                             force=force_reset)
@@ -107,9 +104,10 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
     return result
 
 
+@atexit.register
 def logging_shutdown() -> None:
     """
-    Invoke this function at executing termination.
+    Invoke this function at shutdown.
     """
     global PYPOMES_LOGGER
     if PYPOMES_LOGGER:
@@ -140,7 +138,7 @@ def logging_get_entries(errors: list[str],
     result: BytesIO | None = None
 
     # verify whether inspecting the log entries is possible
-    if LOGGING_STYLE != __LOGGING_DEFAULT_STYLE and \
+    if LOGGING_STYLE != __LOGGING_DEFAULT_FORMAT and \
        (log_level or log_from or log_to):
         errors.append("It is not possible to apply level "
                       "or timestamp criteria to filter log entries")
@@ -148,7 +146,7 @@ def logging_get_entries(errors: list[str],
     if not errors:
         # no, proceed
         result = BytesIO()
-        filepath: Path = Path(LOGGING_FILE_PATH)
+        filepath: Path = Path(LOGGING_FILEPATH)
         with (filepath.open() as f):
             line: str = f.readline()
             while line:
@@ -247,7 +245,7 @@ def logging_service() -> Response:
         - *log-level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-format*: the information and formats to be written to the log
         - *log-style*: the style used for building the 'log-format' parameter
-        - *log-date-format*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
+        - *log-datetime*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
     For omitted parameters, current existing parameter values are used, or obtained from environment variables.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
@@ -264,12 +262,18 @@ def logging_service() -> Response:
     # obtain parameters in URL query
     scheme.update(request.values)
 
+
     # run the request
     result: Response
     if request.method == "GET":
+        # filter out unknown parameters
         result = logging_send_entries(scheme=scheme)
     else:
-        reply: str = logging_startup(scheme=scheme)
+        scheme = {key: value for key, value in scheme.items()
+                  if key in ["log-filepath", "log-filemode", "log-level",
+                             "log-format", "log-style", "log-datetime"]}
+        # nothing to do, if no parameters were provided
+        reply: str = logging_startup(scheme=scheme) if scheme else None
         if reply:
             result = jsonify({"errors": [reply]})
             result.status_code = 400
