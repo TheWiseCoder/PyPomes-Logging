@@ -1,3 +1,4 @@
+import atexit
 import contextlib
 import json
 import logging
@@ -66,7 +67,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
         logging_file_path: Path = Path(scheme.get("log-filepath",
                                        LOGGING_FILE_PATH or
                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                                     def_value=f"{TEMP_FOLDER}/{APP_PREFIX}.log")))
+                                                     def_value=f"{TEMP_FOLDER}/{APP_PREFIX.lower()}.log")))
         LOGGING_LEVEL = logging_level
         LOGGING_FORMAT = logging_format
         LOGGING_STYLE = logging_style
@@ -86,11 +87,12 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
             logging.shutdown()
             force_reset = True
         else:
-            # no, start it
-            PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
+            # no, register its shutdown
+            atexit.register(func=logging_shutdown)
             force_reset = False
 
-        # configure the logger
+        # start and configure the logger
+        PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
         # noinspection PyTypeChecker
         logging.basicConfig(filename=LOGGING_FILE_PATH,
                             filemode=LOGGING_FILE_MODE,
@@ -99,10 +101,20 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
                             style=LOGGING_STYLE,
                             level=LOGGING_LEVEL,
                             force=force_reset)
-        for _handler in logging.root.handlers:
-            _handler.addFilter(filter=logging.Filter(__LOGGING_ID))
+        for handler in logging.root.handlers:
+            handler.addFilter(filter=logging.Filter(__LOGGING_ID))
 
     return result
+
+
+def logging_shutdown() -> None:
+    """
+    Invoke this function at executing termination.
+    """
+    global PYPOMES_LOGGER
+    if PYPOMES_LOGGER:
+        logging.shutdown()
+        PYPOMES_LOGGER = None
 
 
 def logging_get_entries(errors: list[str],
@@ -212,134 +224,17 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     return result
 
 
-def logging_log_msgs(msgs: str | list[str],
-                     output_dev: TextIO = None,
-                     log_level: int = ERROR) -> None:
-    """
-    Write all messages in *msgs* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msgs: the messages list
-    :param output_dev: output device where the message is to be printed (None for no device printing)
-    :param log_level: the logging level, defaults to 'error' ('None' for no logging)
-    """
-    # define the log writer
-    log_writer: callable = None
-    match log_level:
-        case "debug":
-            log_writer = PYPOMES_LOGGER.debug
-        case "info":
-            log_writer = PYPOMES_LOGGER.info
-        case "warning":
-            log_writer = PYPOMES_LOGGER.warning
-        case "error":
-            log_writer = PYPOMES_LOGGER.error
-        case "critical":
-            log_writer = PYPOMES_LOGGER.critical
-
-    # traverse the messages list
-    msg_list: list[str] = [msgs] if isinstance(msgs, str) else msgs
-    for msg in msg_list:
-        # has the log writer been defined ?
-        if log_writer:
-            # yes, log the message
-            log_writer(msg)
-
-        # write to output
-        __write_to_output(msg=msg,
-                          output_dev=output_dev)
-
-
-def logging_log_debug(msg: str,
-                      output_dev: TextIO = None) -> None:
-    """
-    Write debug-level message *msg* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msg: the message to log
-    :param output_dev: output device where the message is to be printed ('None' for no device printing)
-    """
-    # log the message
-    PYPOMES_LOGGER.debug(msg=msg)
-    __write_to_output(msg=msg,
-                      output_dev=output_dev)
-
-
-def logging_log_info(msg: str,
-                     output_dev: TextIO = None) -> None:
-    """
-    Write info-level message *msg* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msg: the message to log
-    :param output_dev: output device where the message is to be printed ('None' for no device printing)
-    """
-    # log the message
-    PYPOMES_LOGGER.info(msg=msg)
-    __write_to_output(msg=msg,
-                      output_dev=output_dev)
-
-
-def logging_log_warning(msg: str,
-                        output_dev: TextIO = None) -> None:
-    """
-    Write warning-level message *msg* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msg: the message to log
-    :param output_dev: output device where the message is to be printed ('None' for no device printing)
-    """
-    # log the message
-    PYPOMES_LOGGER.warning(msg=msg)
-    __write_to_output(msg=msg,
-                      output_dev=output_dev)
-
-
-def logging_log_error(msg: str,
-                      output_dev: TextIO = None) -> None:
-    """
-    Write error-level message *msg* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msg: the message to log
-    :param output_dev: output device where the message is to be printed ('None' for no device printing)
-    """
-    # log the message
-    PYPOMES_LOGGER.error(msg=msg)
-    __write_to_output(msg=msg,
-                      output_dev=output_dev)
-
-
-def logging_log_critical(msg: str,
-                         output_dev: TextIO = None) -> None:
-    """
-    Write critical-level message *msg* to *logger*'s logging file, and to *output_dev*.
-
-    The output device is tipically *sys.stdout* or *sys.stderr*.
-
-    :param msg: the message to log
-    :param output_dev: output device where the message is to be printed ('None' for no device printing)
-    """
-    # log the message
-    PYPOMES_LOGGER.critical(msg=msg)
-    __write_to_output(msg=msg,
-                      output_dev=output_dev)
-
 # @flask_app.route(rule="/logging",
 #                  methods=["GET", "POST"])
 def logging_service() -> Response:
     """
     Entry pointy for configuring and retrieving the execution log of the system.
 
-    The optional *GET* criteria, used to filter the records to be returned, are specified according
-    to the pattern *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
+    The *GET* operation has a set of optional criteria, used to filter the records to be returned.
+    They are specified according to the pattern
+    *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
     log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
-        - *log-filename*: the filename for downloading the data (if omitted, browser displays the data)
+        - *log-filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
         - *log-level*: the logging level of the entries (defaults to *info*)
         - *log-from-datetime*: the start timestamp
         - log-to-datetime*: the finish timestamp
@@ -347,9 +242,9 @@ def logging_service() -> Response:
         - *log-last-hours*: how may hours before current time
     The *POST* operation configures and starts/restarts the logger.
     These are the optional query parameters:
-        - *log-level*: the loggin level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-filepath*: path for the log file
         - *log-filemode*: the mode for log file opening (a- append, w- truncate)
+        - *log-level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
         - *log-format*: the information and formats to be written to the log
         - *log-style*: the style used for building the 'log-format' parameter
         - *log-date-format*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
@@ -359,7 +254,7 @@ def logging_service() -> Response:
     """
     # register the request
     req_query: str = request.query_string.decode()
-    logging_log_info(f"Request {request.path}?{req_query}")
+    PYPOMES_LOGGER.info(f"Request {request.path}?{req_query}")
 
     # obtain the request parameters
     scheme: dict[str, Any] = {}
@@ -382,7 +277,7 @@ def logging_service() -> Response:
             result = Response(status=200)
 
     # log the response
-    logging_log_info(f"Response {request.path}?{req_query}: {result}")
+    PYPOMES_LOGGER.info(f"Response {request.path}?{req_query}: {result}")
 
     return result
 
