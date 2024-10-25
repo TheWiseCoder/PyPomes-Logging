@@ -2,30 +2,53 @@ import contextlib
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Response, jsonify, request, send_file
-from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL  # 0, 10, 20, 30, 40, 50
+from flask import Response, request, send_file
 from io import BytesIO
+from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from pypomes_core import (
     APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER,
-    env_get_str, exc_format, datetime_parse, str_get_positional
+    env_get_str, env_get_path, datetime_parse
 )
-from sys import exc_info, stderr
-from typing import Any, Final, Literal, TextIO
+from typing import Any, Final
 
-__LOGGING_ID: Final[str] = APP_PREFIX or "_L"
-__LOGGING_DEFAULT_FORMAT: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
-                                        "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
-LOGGING_LEVEL: int | None = None
-LOGGING_FORMAT: str | None = None
-LOGGING_STYLE: str | None = None
-LOGGING_DATETIME: str | None = None
-LOGGING_FILEMODE: str | None = None
-LOGGING_FILEPATH: Path | None = None
+class LogLevel(IntEnum):
+    NOTSET = logging.NOTSET         #  0
+    DEBUG = logging.DEBUG           # 10
+    INFO = logging.INFO             # 20
+    WARNING = logging.WARNING       # 30
+    ERROR = logging.ERROR           # 40
+    CRITICAL = logging.CRITICAL     # 50
+
+
+class LogLabel(StrEnum):
+    NOTSET = auto()
+    DEBUG = auto()
+    INFO = auto()
+    WARNING = auto()
+    ERROR = auto()
+    CRITICAL = auto()
+
+
+class LogParam(StrEnum):
+    LOG_LEVEL = auto()
+    LOG_FORMAT = auto()
+    LOG_STYLE = auto()
+    LOG_DATETIME = auto()
+    LOG_FILEMODE = auto()
+    LOG_FILEPATH = auto()
+
+
 PYPOMES_LOGGER: logging.Logger | None = None
+_LOG_CONFIG_DATA: dict[LogParam, Any] = {}
+
+__LOG_ID: Final[str] = APP_PREFIX or "_L"
+__LOG_DEFAULT_FORMAT: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
+                                    "{module:20.20} {funcName:20.20} {lineno:3d} {message}")
+__LOG_DEFAULT_FILEPATH: Final[Path] = Path(TEMP_FOLDER, f"{APP_PREFIX.lower()}.log")
 
 
-def logging_startup(scheme: dict[str, Any] = None) -> str:
+def logging_startup(scheme: dict[str, Any] = None) -> None:
     """
     Configure/reconfigure and start/restart the log service.
 
@@ -34,73 +57,63 @@ def logging_startup(scheme: dict[str, Any] = None) -> str:
 
     :param scheme: optional log parameters and corresponding values
     """
-    # initialize the return variable
-    result: str | None = None
-
     scheme = scheme or {}
-    global LOGGING_LEVEL, LOGGING_FORMAT, LOGGING_STYLE, \
-           LOGGING_DATETIME, LOGGING_FILEMODE, LOGGING_FILEPATH, PYPOMES_LOGGER
+    global _LOG_CONFIG_DATA, PYPOMES_LOGGER
 
-    try:
-        # noinspection PyTypeChecker
-        logging_level: int = __get_logging_level(level=scheme.get("log-level",
-                                                                  LOGGING_LEVEL or
-                                                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                                                def_value="debug").lower()))
-        logging_format: str = scheme.get("log-format",
-                                         LOGGING_FORMAT or
-                                         env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                                     def_value=__LOGGING_DEFAULT_FORMAT))
-        logging_style: str = scheme.get("log-style",
-                                        LOGGING_STYLE or
-                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
-                                                      def_value="{"))
-        logging_datetime_format: str = scheme.get("log-datetime",
-                                                  LOGGING_DATETIME or
-                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_DATETIME_FORMAT",
-                                                              def_value=DATETIME_FORMAT_INV))
-        logging_file_mode: str = scheme.get("log-filemode",
-                                            LOGGING_FILEMODE or
-                                            env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_MODE",
-                                                          def_value="a"))
-        logging_file_path: Path = Path(scheme.get("log-filepath",
-                                                  LOGGING_FILEPATH or
-                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_FILE_PATH",
-                                                     def_value=f"{TEMP_FOLDER}/{APP_PREFIX.lower()}.log")))
-        LOGGING_LEVEL = logging_level
-        LOGGING_FORMAT = logging_format
-        LOGGING_STYLE = logging_style
-        LOGGING_DATETIME = logging_datetime_format
-        LOGGING_FILEMODE = logging_file_mode
-        LOGGING_FILEPATH = logging_file_path
-    except Exception as e:
-        result = exc_format(exc=e,
-                            exc_info=exc_info())
-    # error ?
-    if not result:
-        # no,  is there a logger ?
-        if PYPOMES_LOGGER:
-            # yes, shut it down
-            logging.shutdown()
-            force_reset: bool = True
-        else:
-            # no
-            force_reset: bool = False
+    logging_level: int = __get_logging_level(log_label=scheme.get(str(LogParam.LOG_LEVEL),
+                                                                  _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL) or
+                                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                                              def_value=str(LogLevel.DEBUG))))
+    logging_format: str = scheme.get(str(LogParam.LOG_FORMAT),
+                                     _LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT) or
+                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                                 def_value=__LOG_DEFAULT_FORMAT))
+    logging_style: str = scheme.get(str(LogParam.LOG_STYLE),
+                                    _LOG_CONFIG_DATA.get(LogParam.LOG_STYLE) or
+                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                                def_value="{"))
+    logging_datetime: str = scheme.get(str(LogParam.LOG_DATETIME),
+                                       _LOG_CONFIG_DATA.get(LogParam.LOG_DATETIME) or
+                                       env_get_str(key=f"{APP_PREFIX}_LOGGING_DATETIME_FORMAT",
+                                                   def_value=DATETIME_FORMAT_INV))
+    logging_filemode: str = scheme.get(str(LogParam.LOG_FILEMODE),
+                                       _LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE) or
+                                       env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
+                                                   def_value="w"))
+    logging_filepath: Path = Path(scheme.get(str(LogParam.LOG_FILEPATH),
+                                             _LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH) or
+                                             env_get_path(key=f"{APP_PREFIX}_LOGGING_FILEPATH",
+                                                          def_value=__LOG_DEFAULT_FILEPATH)))
+    logging_filepath.parent.mkdir(parents=True,
+                                  exist_ok=True)
+    _LOG_CONFIG_DATA[LogParam.LOG_LEVEL] = logging_level
+    _LOG_CONFIG_DATA[LogParam.LOG_FORMAT] = logging_format
+    _LOG_CONFIG_DATA[LogParam.LOG_STYLE] = logging_style
+    _LOG_CONFIG_DATA[LogParam.LOG_DATETIME] = logging_datetime
+    _LOG_CONFIG_DATA[LogParam.LOG_FILEMODE] = logging_filemode
+    _LOG_CONFIG_DATA[LogParam.LOG_FILEPATH] = logging_filepath
 
-        # start and configure the logger
-        PYPOMES_LOGGER = logging.getLogger(name=__LOGGING_ID)
-        # noinspection PyTypeChecker
-        logging.basicConfig(filename=LOGGING_FILEPATH,
-                            filemode=LOGGING_FILEMODE,
-                            format=LOGGING_FORMAT,
-                            datefmt=LOGGING_DATETIME,
-                            style=LOGGING_STYLE,
-                            level=LOGGING_LEVEL,
-                            force=force_reset)
-        for handler in logging.root.handlers:
-            handler.addFilter(filter=logging.Filter(__LOGGING_ID))
+    # is there a logger ?
+    if PYPOMES_LOGGER:
+        # yes, shut it down
+        logging.shutdown()
+        force_reset: bool = True
+    else:
+        # no
+        force_reset: bool = False
 
-    return result
+    # start and configure the logger
+    PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
+    # noinspection PyTypeChecker
+    logging.basicConfig(filename=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH),
+                        filemode=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE),
+                        format=_LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT),
+                        datefmt=_LOG_CONFIG_DATA.get(LogParam.LOG_DATETIME),
+                        style=_LOG_CONFIG_DATA.get(LogParam.LOG_STYLE),
+                        level=_LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL),
+                        force=force_reset)
+    for handler in logging.root.handlers:
+        handler.addFilter(filter=logging.Filter(__LOG_ID))
 
 
 def logging_shutdown() -> None:
@@ -116,45 +129,58 @@ def logging_shutdown() -> None:
 def logging_get_entries(errors: list[str],
                         log_level: int = None,
                         log_from: datetime = None,
-                        log_to: datetime = None) -> BytesIO:
+                        log_to: datetime = None,
+                        log_thread: str = None) -> BytesIO:
     """
     Extract and return entries in the current logging file.
 
     Parameters specify criteria for log entry selection, and are optional.
     Intervals are inclusive (*[log_from, log_to]*).
-    It is required that the current logging file be compliant with
-    *PYPOMES_LOGGER*'s *__LOGGING_DEFAULT_STYLE*,
+    It is required that the current logging file be compliant with the default format,
     or that criteria for log entry selection not be specified.
+
+    The current default format for the log is (field descriptions follow):
+        {asctime} {levelname:1.1} {thread:5d} {module:20.20} {funcName:20.20} {lineno:3d} {message}
+        *asctime*: timestamp, as YYYY-MM-DD hh:mm:ss
+        *levelname:1.1*: first letter of the log level, in uppercase (N, D, I, W, E, C)
+        *thread:5d*: first 5 digits of the thread id
+        *module:20.20*: first 20 digits of the module name
+        *funcName:20.20*: first 20 digits of the function name
+        *lineno:3d* first 3 digits of the line number
+        *message*: the log message
 
     :param errors: incidental error messages
     :param log_level: the logging level (defaults to all levels)
     :param log_from: the initial timestamp (defaults to unspecified)
     :param log_to: the finaL timestamp (defaults to unspecified)
+    :param log_thread: the thread originating the log entries (defaults to all threads)
     :return: the logging entries meeting the specified criteria
     """
     # initialize the return variable
     result: BytesIO | None = None
 
     # verify whether inspecting the log entries is possible
-    if LOGGING_STYLE != __LOGGING_DEFAULT_FORMAT and \
-       (log_level or log_from or log_to):
-        errors.append("It is not possible to apply level "
-                      "or timestamp criteria to filter log entries")
-    # errors ?
-    if not errors:
-        # no, proceed
+    if _LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT) != __LOG_DEFAULT_FORMAT and \
+       (log_level or log_from or log_to or log_thread):
+        # no, report the problem
+        errors.append("It is not possible to apply level, timestamp "
+                      "or thread criteria to filter log entries, "
+                      "as the log format has been customized")
+    else:
+        # yes, proceed
         result = BytesIO()
-        filepath: Path = Path(LOGGING_FILEPATH)
+        filepath: Path = _LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH)
         with (filepath.open() as f):
             line: str = f.readline()
             while line:
                 items: list[str] = line.split(sep=None,
-                                              maxsplit=3)
-                # noinspection PyTypeChecker
-                msg_level: int = CRITICAL if not log_level or len(items) < 2 \
-                                 else __get_logging_level(level=items[2].lower())
+                                              maxsplit=4)
+                msg_level: int = LogLevel.CRITICAL \
+                                 if not log_level or len(items) < 2 \
+                                 else __get_logging_level(log_label=items[2])
                 # 'not log_level' works for both values 'NOTSET' and 'None'
-                if not log_level or msg_level >= log_level:
+                if (not log_level or msg_level >= log_level) and \
+                   (not log_thread or (len(items) > 3 and log_thread == items[3])):
                     if len(items) > 1 and (log_from or log_to):
                         timestamp: datetime = datetime_parse(f"{items[0]} {items[1]}")
                         if not timestamp or \
@@ -181,17 +207,19 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     # initialize the error messages list
     errors: list[str] = []
 
-    # obtain the logging level
-    log_level: int = str_get_positional(source=scheme.get("log-level", "debug")[:1].upper(),
-                                        list_origin=["debug", "info", "warning", "error", "critical"],
-                                        list_dest=[10, 20, 30, 40, 50])
+    # obtain the logging level (defaults to LogLevel.DEBUG)
+    log_level: int = __get_logging_level(log_label=scheme.get(str(LogParam.LOG_LEVEL), str(LogLevel.DEBUG)))
+
+    # obtain the thread id
+    log_thread: str = scheme.get("log_thread")
+
     # obtain the  timestamps
-    log_from: datetime = datetime_parse(dt_str=scheme.get("log-from-datetime"))
-    log_to: datetime = datetime_parse(dt_str=scheme.get("log-to-datetime"))
+    log_from: datetime = datetime_parse(dt_str=scheme.get("log_from_datetime"))
+    log_to: datetime = datetime_parse(dt_str=scheme.get("log_to_datetime"))
 
     if not log_from and not log_to:
-        last_days: str = scheme.get("log-last-days", "0")
-        last_hours: str = scheme.get("log-last-hours", "0")
+        last_days: str = scheme.get("log_last_days", "0")
+        last_hours: str = scheme.get("log_last_hours", "0")
         offset_days: int = int(last_days) if last_days.isdigit() else 0
         offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
         if offset_days or offset_hours:
@@ -201,11 +229,12 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     log_entries: BytesIO = logging_get_entries(errors=errors,
                                                log_level=log_level,
                                                log_from=log_from,
-                                               log_to=log_to)
+                                               log_to=log_to,
+                                               log_thread=log_thread)
     # errors ?
     if not errors:
         # no, return the log entries requested
-        log_file = scheme.get("log-filename")
+        log_file = scheme.get("log_filename")
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
                            mimetype="text/plain",
@@ -228,29 +257,31 @@ def logging_service() -> Response:
 
     The *GET* operation has a set of optional criteria, used to filter the records to be returned.
     They are specified according to the pattern
-    *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
-    log-from-datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last-days=<n>&log-last-hours=<n>>*:
-        - *log-filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
-        - *log-level*: the logging level of the entries (defaults to *info*)
-        - *log-from-datetime*: the start timestamp
-        - log-to-datetime*: the finish timestamp
-        - *log-last-days*: how many days before current date
-        - *log-last-hours*: how may hours before current time
+    *log_filename=<string>&log_level=<debug|info|warning|error|critical>&
+    log_from_datetime=YYYYMMDDhhmmss&log_to_datetime=YYYYMMDDhhmmss&log_last_days=<n>&log_last_hours=<n>>*:
+        - *log_filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
+        - *log_level*: the logging level of the entries (defaults to *LogLevel.DEBUG*)
+        - *log_thread*: the thread originating the log entries (defaults to all threads)
+        - *log_from-datetime*: the start timestamp
+        - log_to_datetime*: the finish timestamp
+        - *log_last-days*: how many days before current date
+        - *log_last-hours*: how may hours before current time
     The *POST* operation configures and starts/restarts the logger.
     These are the optional query parameters:
-        - *log-filepath*: path for the log file
-        - *log-filemode*: the mode for log file opening (a- append, w- truncate)
-        - *log-level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
-        - *log-format*: the information and formats to be written to the log
-        - *log-style*: the style used for building the 'log-format' parameter
-        - *log-datetime*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
+        - *log_filepath*: path for the log file
+        - *log_filemode*: the mode for log file opening (a- append, w- truncate)
+        - *log_level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
+        - *log_format*: the information and formats to be written to the log
+        - *log_style*: the style used for building the 'log_format' parameter
+        - *log_datetime*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
     For omitted parameters, current existing parameter values are used, or obtained from environment variables.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
     """
     # register the request
     req_query: str = request.query_string.decode()
-    PYPOMES_LOGGER.info(f"Request {request.path}?{req_query}")
+    if PYPOMES_LOGGER:
+        PYPOMES_LOGGER.info(f"Request {request.path}?{req_query}")
 
     # obtain the request parameters
     scheme: dict[str, Any] = {}
@@ -268,65 +299,69 @@ def logging_service() -> Response:
         result = logging_send_entries(scheme=scheme)
     else:
         scheme = {key: value for key, value in scheme.items()
-                  if key in ["log-filepath", "log-filemode", "log-level",
-                             "log-format", "log-style", "log-datetime"]}
-        # nothing to do, if no parameters were provided
-        reply: str = logging_startup(scheme=scheme) if scheme else None
-        if reply:
-            result = jsonify({"errors": [reply]})
-            result.status_code = 400
-        else:
+                  if key in list(map(str, LogParam))}
+        # were valid configuration parameters provided ?
+        if scheme:
+            # yes
+            logging_startup(scheme=scheme)
             result = Response(status=200)
-
+        else:
+            # no
+            result = Response(response="No configuration parameters provided",
+                              status=400)
     # log the response
-    PYPOMES_LOGGER.info(f"Response {request.path}?{req_query}: {result}")
+    if PYPOMES_LOGGER:
+        PYPOMES_LOGGER.info(f"Response {request.path}?{req_query}: {result}")
 
     return result
 
 
-def __get_logging_level(level: int | Literal["debug", "info", "warning", "error", "critical"]) -> int:
+def logging_get_param(key: LogParam) -> Any:
     """
-    Translate the log severity string *level* into the logging's internal severity value.
+    Return the current value for logging parameter *key*.
 
-    :param level: the string log severity
+    :param key: the reference parameter
+    :return: the current value of the logging parameter
+    """
+    return _LOG_CONFIG_DATA.get(key)
+
+
+def logging_get_params() -> dict[str, Any]:
+    """
+    Return the current logging parameters as a *dict*.
+
+    :return: the current logging parameters
+    """
+    return {str(k): v for (k, v) in _LOG_CONFIG_DATA.items()}
+
+
+def __get_logging_level(log_label: int | str) -> int:
+    """
+    Translate the log severity *log_label* into the logging's internal severity value.
+
+    :param log_label: the string log severity
     :return: the internal logging severity value
     """
     result: int
-    if isinstance(level, int):
-        result = level
+    if isinstance(log_label, int):
+        result = log_label
     else:
-        match level:
-            case "debug":
-                result = DEBUG          # 10
-            case "info":
-                result = INFO           # 20
-            case "warning":
-                result = WARNING        # 30
-            case "error":
-                result = ERROR          # 40
-            case "critical":
-                result = CRITICAL       # 50
+        match log_label:
+            case str(LogLabel.DEBUG) | "D":
+                result = LogLevel.DEBUG          # 10
+            case str(LogLabel.INFO) | "I":
+                result = LogLevel.INFO           # 20
+            case str(LogLabel.WARNING) | "W":
+                result = LogLevel.WARNING        # 30
+            case str(LogLabel.ERROR) | "E":
+                result = LogLevel.ERROR          # 40
+            case str(LogLabel.CRITICAL) | "C":
+                result = LogLevel.CRITICAL       # 50
             case _:
-                result = NOTSET         # 0
+                result = LogLevel.NOTSET         #  0
 
     return result
 
-def __write_to_output(msg: str,
-                      output_dev: TextIO) -> None:
-
-    # has the output device been defined ?
-    if output_dev:
-        # yes, write the message to it
-        output_dev.write(msg)
-
-        # is the output device 'stderr' ou 'stdout' ?
-        if output_dev.name.startswith("<std"):
-            # yes, skip to the next line
-            output_dev.write("\n")
-
 
 # initialize the logger
-__reply: str = logging_startup()
-if __reply:
-    stderr.write(__reply + "\n")
-
+logging_startup()

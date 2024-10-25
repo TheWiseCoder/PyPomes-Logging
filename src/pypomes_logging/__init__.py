@@ -1,18 +1,16 @@
 from .logging_pomes import (
-    DEBUG, INFO, WARNING, ERROR, CRITICAL, PYPOMES_LOGGER,
-    LOGGING_LEVEL, LOGGING_FORMAT, LOGGING_DATETIME,
-    LOGGING_STYLE, LOGGING_FILEPATH, LOGGING_FILEMODE,
+    PYPOMES_LOGGER, LogLevel, LogLabel, LogParam,
     logging_startup, logging_shutdown, logging_service,
-    logging_get_entries, logging_send_entries
+    logging_get_entries, logging_send_entries,
+    logging_get_param, logging_get_params
 )
 
 __all__ = [
     # logging_pomes
-    "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "PYPOMES_LOGGER",
-    "LOGGING_LEVEL", "LOGGING_FORMAT", "LOGGING_DATETIME",
-    "LOGGING_STYLE", "LOGGING_FILEPATH", "LOGGING_FILEMODE",
+    "PYPOMES_LOGGER", "LogLevel", "LogLabel", "LogParam",
     "logging_startup", "logging_shutdown", "logging_service",
-    "logging_get_entries", "logging_send_entries"
+    "logging_get_entries", "logging_send_entries",
+    "logging_get_param", "logging_get_params"
 ]
 
 from importlib.metadata import version
