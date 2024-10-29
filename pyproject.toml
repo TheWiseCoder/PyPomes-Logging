@@ -6,13 +6,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_logging"
-version = "0.4.7"
+version = "0.4.8"
 authors = [
   { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
 description = "A collection of Python pomes, penyeach (logging module)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

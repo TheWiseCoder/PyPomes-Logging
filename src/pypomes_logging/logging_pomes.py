@@ -15,7 +15,7 @@ from typing import Any, Final
 
 
 class LogLevel(IntEnum):
-    NOTSET = logging.NOTSET         #  0
+    NOTSET = logging.NOTSET         # 0
     DEBUG = logging.DEBUG           # 10
     INFO = logging.INFO             # 20
     WARNING = logging.WARNING       # 30
@@ -33,12 +33,12 @@ class LogLabel(StrEnum):
 
 
 class LogParam(StrEnum):
-    LOG_FILEMODE = auto()
-    LOG_FILEPATH = auto()
-    LOG_FORMAT = auto()
-    LOG_LEVEL = auto()
-    LOG_STYLE = auto()
-    LOG_TIMESTAMP = auto()
+    LOG_FILEMODE = auto()       # 'a' or 'w'
+    LOG_FILEPATH = auto()       # a Path object
+    LOG_FORMAT = auto()         # defaults to __LOG_DEFAULT_FORMAT (see below)
+    LOG_LEVEL = auto()          # 'N', 'D', 'I', 'W', 'E', 'C', defaults to 'D'
+    LOG_STYLE = auto()          # '{', '%', '$'
+    LOG_TIMESTAMP = auto()      # defaults to '%Y-%m-%d %H:%M:%S'
 
 
 VALID_GET_PARAMS: list[str] = ["log_filename", "log_level", "log_thread",
@@ -65,10 +65,10 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     scheme = scheme or {}
     global _LOG_CONFIG_DATA, PYPOMES_LOGGER
 
-    logging_level: int = __get_logging_level(log_label=scheme.get(str(LogParam.LOG_LEVEL),
-                                                                  _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL) or
-                                                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                                              def_value=str(LogLevel.DEBUG))))
+    logging_level: str = scheme.get(LogParam.LOG_LEVEL,
+                                    _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL) or
+                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                def_value=LogLabel.NOTSET))[0].upper()
     logging_format: str = scheme.get(str(LogParam.LOG_FORMAT),
                                      _LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT) or
                                      env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
@@ -115,7 +115,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
                         format=_LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT),
                         datefmt=_LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP),
                         style=_LOG_CONFIG_DATA.get(LogParam.LOG_STYLE),
-                        level=_LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL),
+                        level=__get_level_value(_LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL)),
                         force=force_reset)
     for handler in logging.root.handlers:
         handler.addFilter(filter=logging.Filter(__LOG_ID))
@@ -132,7 +132,7 @@ def logging_shutdown() -> None:
 
 
 def logging_get_entries(errors: list[str],
-                        log_level: int = None,
+                        log_level: str = None,
                         log_from: datetime = None,
                         log_to: datetime = None,
                         log_thread: str = None) -> BytesIO:
@@ -175,22 +175,21 @@ def logging_get_entries(errors: list[str],
         # yes, proceed
         result = BytesIO()
         filepath: Path = _LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH)
-        with (filepath.open() as f):
+        with filepath.open() as f:
             line: str = f.readline()
             while line:
                 items: list[str] = line.split(sep=None,
                                               maxsplit=4)
                 msg_level: int = LogLevel.CRITICAL \
-                                 if not log_level or len(items) < 2 \
-                                 else __get_logging_level(log_label=items[2])
-                # 'not log_level' works for both values 'NOTSET' and 'None'
-                if (not log_level or msg_level >= log_level) and \
+                    if not log_level or len(items) < 2 \
+                    else __get_level_value(log_label=items[2])
+                if (not log_level or msg_level >= __get_level_value(log_level)) and \
                    (not log_thread or (len(items) > 3 and log_thread == items[3])):
                     if len(items) > 1 and (log_from or log_to):
                         timestamp: datetime = datetime_parse(f"{items[0]} {items[1]}")
                         if not timestamp or \
-                           ((not log_from or timestamp >= log_from) and
-                            (not log_to or timestamp <= log_to)):
+                           (not log_from or timestamp >= log_from) and \
+                           (not log_to or timestamp <= log_to):
                             result.write(line.encode())
                     else:
                         result.write(line.encode())
@@ -212,9 +211,9 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     # initialize the error messages list
     errors: list[str] = []
 
-    # obtain the logging level (defaults to LogLevel.DEBUG)
-    log_level: int = __get_logging_level(log_label=scheme.get(str(LogParam.LOG_LEVEL), str(LogLevel.DEBUG)))
-
+    # obtain the logging level (defaults to current level)
+    log_level: str = scheme.get(str(LogParam.LOG_LEVEL),
+                                _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL))
     # obtain the thread id
     log_thread: str = scheme.get("log_thread")
 
@@ -265,7 +264,7 @@ def logging_service() -> Response:
     *log_filename=<string>&log_level=<debug|info|warning|error|critical>&
     log_from_datetime=YYYYMMDDhhmmss&log_to_datetime=YYYYMMDDhhmmss&log_last_days=<n>&log_last_hours=<n>>*:
         - *log_filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
-        - *log_level*: the logging level of the entries (defaults to *LogLevel.DEBUG*)
+        - *log_level*: the logging level of the entries (defaults to *LogLabel.DEBUG*)
         - *log_thread*: the thread originating the log entries (defaults to all threads)
         - *log_from-datetime*: the start timestamp
         - log_to_datetime*: the finish timestamp
@@ -318,9 +317,11 @@ def logging_service() -> Response:
     else:
         # reconfigure the log
         logging_startup(scheme=scheme)
+        params: dict[str, Any] = logging_get_params()
+        params[LogParam.LOG_FILEPATH] = params.get(LogParam.LOG_FILEPATH).as_posix()
         reply: dict[str, Any] = {
             "status": "Log restarted",
-            "criteria": logging_get_params()
+            "criteria": params
         }
         result = jsonify(reply)
 
@@ -364,7 +365,7 @@ def __assert_params(errors: list[str],
                                                 f"@{key}"))
 
 
-def __get_logging_level(log_label: int | str) -> int:
+def __get_level_value(log_label: str) -> int:
     """
     Translate the log severity *log_label* into the logging's internal severity value.
 
@@ -372,22 +373,19 @@ def __get_logging_level(log_label: int | str) -> int:
     :return: the internal logging severity value
     """
     result: int
-    if isinstance(log_label, int):
-        result = log_label
-    else:
-        match log_label:
-            case str(LogLabel.DEBUG) | "D":
-                result = LogLevel.DEBUG          # 10
-            case str(LogLabel.INFO) | "I":
-                result = LogLevel.INFO           # 20
-            case str(LogLabel.WARNING) | "W":
-                result = LogLevel.WARNING        # 30
-            case str(LogLabel.ERROR) | "E":
-                result = LogLevel.ERROR          # 40
-            case str(LogLabel.CRITICAL) | "C":
-                result = LogLevel.CRITICAL       # 50
-            case _:
-                result = LogLevel.NOTSET         #  0
+    match log_label:
+        case str(LogLabel.DEBUG) | "D":
+            result = LogLevel.DEBUG          # 10
+        case str(LogLabel.INFO) | "I":
+            result = LogLevel.INFO           # 20
+        case str(LogLabel.WARNING) | "W":
+            result = LogLevel.WARNING        # 30
+        case str(LogLabel.ERROR) | "E":
+            result = LogLevel.ERROR          # 40
+        case str(LogLabel.CRITICAL) | "C":
+            result = LogLevel.CRITICAL       # 50
+        case _:
+            result = LogLevel.NOTSET         # 0
 
     return result
 
