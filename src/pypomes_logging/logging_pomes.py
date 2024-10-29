@@ -2,15 +2,17 @@ import contextlib
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Response, request, send_file
+from flask import Response, request, jsonify, send_file
 from io import BytesIO
 from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from pypomes_core import (
     APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER,
-    env_get_str, env_get_path, datetime_parse
+    env_get_str, env_get_path, datetime_parse,
+    validate_format_error, validate_format_errors
 )
 from typing import Any, Final
+
 
 class LogLevel(IntEnum):
     NOTSET = logging.NOTSET         #  0
@@ -31,13 +33,16 @@ class LogLabel(StrEnum):
 
 
 class LogParam(StrEnum):
-    LOG_LEVEL = auto()
-    LOG_FORMAT = auto()
-    LOG_STYLE = auto()
-    LOG_DATETIME = auto()
     LOG_FILEMODE = auto()
     LOG_FILEPATH = auto()
+    LOG_FORMAT = auto()
+    LOG_LEVEL = auto()
+    LOG_STYLE = auto()
+    LOG_TIMESTAMP = auto()
 
+
+VALID_GET_PARAMS: list[str] = ["log_filename", "log_level", "log_thread",
+                               "log_from_datetime", "log_to_datetime", "log_last_days", "log_last_hours"]
 
 PYPOMES_LOGGER: logging.Logger | None = None
 _LOG_CONFIG_DATA: dict[LogParam, Any] = {}
@@ -72,9 +77,9 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
                                     _LOG_CONFIG_DATA.get(LogParam.LOG_STYLE) or
                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
                                                 def_value="{"))
-    logging_datetime: str = scheme.get(str(LogParam.LOG_DATETIME),
-                                       _LOG_CONFIG_DATA.get(LogParam.LOG_DATETIME) or
-                                       env_get_str(key=f"{APP_PREFIX}_LOGGING_DATETIME_FORMAT",
+    logging_datetime: str = scheme.get(str(LogParam.LOG_TIMESTAMP),
+                                       _LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP) or
+                                       env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
                                                    def_value=DATETIME_FORMAT_INV))
     logging_filemode: str = scheme.get(str(LogParam.LOG_FILEMODE),
                                        _LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE) or
@@ -89,7 +94,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     _LOG_CONFIG_DATA[LogParam.LOG_LEVEL] = logging_level
     _LOG_CONFIG_DATA[LogParam.LOG_FORMAT] = logging_format
     _LOG_CONFIG_DATA[LogParam.LOG_STYLE] = logging_style
-    _LOG_CONFIG_DATA[LogParam.LOG_DATETIME] = logging_datetime
+    _LOG_CONFIG_DATA[LogParam.LOG_TIMESTAMP] = logging_datetime
     _LOG_CONFIG_DATA[LogParam.LOG_FILEMODE] = logging_filemode
     _LOG_CONFIG_DATA[LogParam.LOG_FILEPATH] = logging_filepath
 
@@ -108,7 +113,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     logging.basicConfig(filename=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH),
                         filemode=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE),
                         format=_LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT),
-                        datefmt=_LOG_CONFIG_DATA.get(LogParam.LOG_DATETIME),
+                        datefmt=_LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP),
                         style=_LOG_CONFIG_DATA.get(LogParam.LOG_STYLE),
                         level=_LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL),
                         force=force_reset)
@@ -291,24 +296,30 @@ def logging_service() -> Response:
     # obtain parameters in URL query
     scheme.update(request.values)
 
-
+    # validate the request parameters
+    errors: list[str] = []
+    if scheme:
+        __assert_params(errors=errors,
+                        method=request.method,
+                        scheme=scheme)
+    elif request.method == "POST":
+        # 101: {}
+        errors.append(validate_format_error(101,
+                                            "No configuration parameters provided"))
     # run the request
     result: Response
-    if request.method == "GET":
-        # filter out unknown parameters
+    if errors:
+        reply_err: dict = {"errors": validate_format_errors(errors=errors)}
+        result = jsonify(reply_err)
+        result.status_code = 400
+    elif request.method == "GET":
+        # retrieve the log
         result = logging_send_entries(scheme=scheme)
     else:
-        scheme = {key: value for key, value in scheme.items()
-                  if key in list(map(str, LogParam))}
-        # were valid configuration parameters provided ?
-        if scheme:
-            # yes
-            logging_startup(scheme=scheme)
-            result = Response(status=200)
-        else:
-            # no
-            result = Response(response="No configuration parameters provided",
-                              status=400)
+        # reconfigure the log
+        logging_startup(scheme=scheme)
+        result = Response(status=200)
+
     # log the response
     if PYPOMES_LOGGER:
         PYPOMES_LOGGER.info(f"Response {request.path}?{req_query}: {result}")
@@ -330,9 +341,23 @@ def logging_get_params() -> dict[str, Any]:
     """
     Return the current logging parameters as a *dict*.
 
+    Note that parameter *LogParam.LOG_FILEPATH* is not serializable.
+
     :return: the current logging parameters
     """
     return {str(k): v for (k, v) in _LOG_CONFIG_DATA.items()}
+
+
+def __assert_params(errors: list[str],
+                    method: str,
+                    scheme: dict) -> None:
+
+    params: list[str] = VALID_GET_PARAMS if method == "GET" else list(map(str, LogParam))
+    for key in scheme.keys():
+        if key not in params:
+            # 122: Attribute is unknown or invalid in this context
+            errors.append(validate_format_error(122,
+                                                f"@{key}"))
 
 
 def __get_logging_level(log_label: int | str) -> int:
