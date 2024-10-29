@@ -318,7 +318,11 @@ def logging_service() -> Response:
     else:
         # reconfigure the log
         logging_startup(scheme=scheme)
-        result = Response(status=200)
+        reply: dict[str, Any] = {
+            "status": "Log restarted",
+            "criteria": logging_get_params()
+        }
+        result = jsonify(reply)
 
     # log the response
     if PYPOMES_LOGGER:
