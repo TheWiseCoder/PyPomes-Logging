@@ -7,7 +7,7 @@ from io import BytesIO
 from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from pypomes_core import (
-    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER,
+    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, Mimetype,
     env_get_str, env_get_path, datetime_parse,
     validate_format_error, validate_format_errors
 )
@@ -240,15 +240,17 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
         # no, return the log entries requested
         log_file = scheme.get("log_filename")
         log_entries.seek(0)
+        # noinspection PyTypeChecker
         result = send_file(path_or_file=log_entries,
-                           mimetype="text/plain",
+                           mimetype=Mimetype.TEXT.value,
                            as_attachment=log_file is not None,
                            download_name=log_file)
     else:
         # yes, report the failure
+        # noinspection PyTypeChecker
         result = Response(response=json.dumps(obj={"errors": errors}),
                           status=400,
-                          mimetype="application/json")
+                          mimetype=Mimetype.JSON.value)
 
     return result
 
