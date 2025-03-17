@@ -15,6 +15,9 @@ from typing import Any, Final
 
 
 class LogLevel(IntEnum):
+    """
+    The Python log levels.
+    """
     NOTSET = logging.NOTSET         # 0
     DEBUG = logging.DEBUG           # 10
     INFO = logging.INFO             # 20
@@ -24,6 +27,9 @@ class LogLevel(IntEnum):
 
 
 class LogLabel(StrEnum):
+    """
+    Labels for the Python log levels.
+    """
     NOTSET = auto()
     DEBUG = auto()
     INFO = auto()
@@ -33,6 +39,9 @@ class LogLabel(StrEnum):
 
 
 class LogParam(StrEnum):
+    """
+    The parameters for configuring the logger.
+    """
     LOG_FILEMODE = auto()       # 'a' or 'w'
     LOG_FILEPATH = auto()       # a Path object
     LOG_FORMAT = auto()         # defaults to __LOG_DEFAULT_FORMAT (see below)
@@ -41,8 +50,8 @@ class LogParam(StrEnum):
     LOG_TIMESTAMP = auto()      # defaults to '%Y-%m-%d %H:%M:%S'
 
 
-VALID_GET_PARAMS: list[str] = ["log_filename", "log_level", "log_thread",
-                               "log_from_datetime", "log_to_datetime", "log_last_days", "log_last_hours"]
+VALID_GET_PARAMS: list[str] = ["log-filename", "log-level", "log-thread",
+                               "log-from-datetime", "log-to-datetime", "log-last-days", "log-last-hours"]
 
 PYPOMES_LOGGER: logging.Logger | None = None
 _LOG_CONFIG_DATA: dict[LogParam, Any] = {}
@@ -63,7 +72,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     :param scheme: optional log parameters and corresponding values
     """
     scheme = scheme or {}
-    global _LOG_CONFIG_DATA, PYPOMES_LOGGER
+    global PYPOMES_LOGGER
 
     logging_level: str = scheme.get(LogParam.LOG_LEVEL,
                                     _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL) or
@@ -187,9 +196,9 @@ def logging_get_entries(errors: list[str],
                    (not log_thread or (len(items) > 3 and log_thread == items[3])):
                     if len(items) > 1 and (log_from or log_to):
                         timestamp: datetime = datetime_parse(f"{items[0]} {items[1]}")
-                        if not timestamp or \
-                           (not log_from or timestamp >= log_from) and \
-                           (not log_to or timestamp <= log_to):
+                        if not (timestamp or
+                                ((not log_from or timestamp >= log_from) and
+                                 (not log_to or timestamp <= log_to))):
                             result.write(line.encode())
                     else:
                         result.write(line.encode())
@@ -215,15 +224,15 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     log_level: str = scheme.get(str(LogParam.LOG_LEVEL),
                                 _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL))
     # obtain the thread id
-    log_thread: str = scheme.get("log_thread")
+    log_thread: str = scheme.get("log-thread")
 
     # obtain the  timestamps
-    log_from: datetime = datetime_parse(dt_str=scheme.get("log_from_datetime"))
-    log_to: datetime = datetime_parse(dt_str=scheme.get("log_to_datetime"))
+    log_from: datetime = datetime_parse(dt_str=scheme.get("log-from-datetime"))
+    log_to: datetime = datetime_parse(dt_str=scheme.get("log-to-datetime"))
 
     if not log_from and not log_to:
-        last_days: str = scheme.get("log_last_days", "0")
-        last_hours: str = scheme.get("log_last_hours", "0")
+        last_days: str = scheme.get("log-last-days", "0")
+        last_hours: str = scheme.get("log-last-hours", "0")
         offset_days: int = int(last_days) if last_days.isdigit() else 0
         offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
         if offset_days or offset_hours:
@@ -238,7 +247,7 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     # errors ?
     if not errors:
         # no, return the log entries requested
-        log_file = scheme.get("log_filename")
+        log_file = scheme.get("log-filename")
         log_entries.seek(0)
         # noinspection PyTypeChecker
         result = send_file(path_or_file=log_entries,
@@ -263,23 +272,23 @@ def logging_service() -> Response:
 
     The *GET* operation has a set of optional criteria, used to filter the records to be returned.
     They are specified according to the pattern
-    *log_filename=<string>&log_level=<debug|info|warning|error|critical>&
-    log_from_datetime=YYYYMMDDhhmmss&log_to_datetime=YYYYMMDDhhmmss&log_last_days=<n>&log_last_hours=<n>>*:
-        - *log_filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
-        - *log_level*: the logging level of the entries (defaults to *LogLabel.DEBUG*)
-        - *log_thread*: the thread originating the log entries (defaults to all threads)
-        - *log_from-datetime*: the start timestamp
-        - log_to_datetime*: the finish timestamp
-        - *log_last-days*: how many days before current date
-        - *log_last-hours*: how may hours before current time
+    *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
+    log-from_datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last_days=<n>&log-last_hours=<n>>*:
+        - *log-filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
+        - *log-level*: the logging level of the entries (defaults to *LogLabel.DEBUG*)
+        - *log-thread*: the thread originating the log entries (defaults to all threads)
+        - *log-from-datetime*: the start timestamp
+        - log-to-datetime*: the finish timestamp
+        - *log-last-days*: how many days before current date
+        - *log-last-hours*: how may hours before current time
     The *POST* operation configures and starts/restarts the logger.
     These are the optional query parameters:
-        - *log_filepath*: path for the log file
-        - *log_filemode*: the mode for log file opening (a- append, w- truncate)
-        - *log_level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
-        - *log_format*: the information and formats to be written to the log
-        - *log_style*: the style used for building the 'log_format' parameter
-        - *log_datetime*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
+        - *log-filepath*: path for the log file
+        - *log-filemode*: the mode for log file opening (a- append, w- truncate)
+        - *log-evel*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
+        - *log-format*: the information and formats to be written to the log
+        - *log-style*: the style used for building the 'log-format' parameter
+        - *log-datetime*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
     For omitted parameters, current existing parameter values are used, or obtained from environment variables.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
@@ -360,10 +369,10 @@ def __assert_params(errors: list[str],
                     scheme: dict) -> None:
 
     params: list[str] = VALID_GET_PARAMS if method == "GET" else list(map(str, LogParam))
-    for key in scheme.keys():
+    for key in scheme:
         if key not in params:
             # 122: Attribute is unknown or invalid in this context
-            errors.append(validate_format_error(122,
+            errors.append(validate_format_error(122,  # noqa: PERF401
                                                 f"@{key}"))
 
 
