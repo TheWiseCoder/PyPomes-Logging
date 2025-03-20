@@ -190,7 +190,7 @@ def logging_get_entries(errors: list[str],
                 items: list[str] = line.split(sep=None,
                                               maxsplit=4)
                 msg_level: int = LogLevel.CRITICAL \
-                    if not log_level or len(items) < 2 \
+                    if not log_level or len(items) < 3 \
                     else __get_level_value(log_label=items[2])
                 if (not log_level or msg_level >= __get_level_value(log_level)) and \
                    (not log_thread or (len(items) > 3 and log_thread == items[3])):
