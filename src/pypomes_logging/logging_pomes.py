@@ -40,18 +40,20 @@ class LogLabel(StrEnum):
 
 class LogParam(StrEnum):
     """
-    The parameters for configuring the logger.
+    Parameters for configuring the logger.
     """
-    LOG_FILEMODE = auto()       # 'a' or 'w'
-    LOG_FILEPATH = auto()       # a Path object
-    LOG_FORMAT = auto()         # defaults to __LOG_DEFAULT_FORMAT (see below)
-    LOG_LEVEL = auto()          # 'N', 'D', 'I', 'W', 'E', 'C', defaults to 'D'
-    LOG_STYLE = auto()          # '{', '%', '$'
-    LOG_TIMESTAMP = auto()      # defaults to '%Y-%m-%d %H:%M:%S'
+    LOG_FILEMODE = "log-filemode"       # 'a' or 'w'
+    LOG_FILEPATH = "log-filepath"       # a Path object
+    LOG_FORMAT = "log-format"           # defaults to __LOG_DEFAULT_FORMAT (see below)
+    LOG_LEVEL = "log-level"             # 'N', 'D', 'I', 'W', 'E', 'C', defaults to 'D'
+    LOG_STYLE = "log-style"             # '{', '%', '$'
+    LOG_TIMESTAMP = "log-timestamp"     # defaults to '%Y-%m-%d %H:%M:%S'
 
 
-VALID_GET_PARAMS: list[str] = ["log-filename", "log-level", "log-thread",
-                               "log-from-datetime", "log-to-datetime", "log-last-days", "log-last-hours"]
+VALID_GET_PARAMS: list[str] = [
+    "log-filename", "log-level", "log-thread",
+    "log-from-datetime", "log-to-datetime", "log-last-days", "log-last-hours"
+]
 
 PYPOMES_LOGGER: logging.Logger | None = None
 _LOG_CONFIG_DATA: dict[LogParam, Any] = {}
