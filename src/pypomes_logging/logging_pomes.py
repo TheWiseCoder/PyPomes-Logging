@@ -7,7 +7,7 @@ from io import BytesIO
 from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from pypomes_core import (
-    APP_PREFIX, DATETIME_FORMAT_INV, TEMP_FOLDER, Mimetype,
+    APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat,
     env_get_str, env_get_path, datetime_parse,
     validate_format_error, validate_format_errors
 )
@@ -91,7 +91,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     logging_datetime: str = scheme.get(str(LogParam.LOG_TIMESTAMP),
                                        _LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
-                                                   def_value=DATETIME_FORMAT_INV))
+                                                   def_value=DatetimeFormat.INV))
     logging_filemode: str = scheme.get(str(LogParam.LOG_FILEMODE),
                                        _LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
@@ -120,7 +120,6 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
 
     # start and configure the logger
     PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
-    # noinspection PyTypeChecker
     logging.basicConfig(filename=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH),
                         filemode=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE),
                         format=_LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT),
@@ -251,17 +250,15 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
         # no, return the log entries requested
         log_file = scheme.get("log-filename")
         log_entries.seek(0)
-        # noinspection PyTypeChecker
         result = send_file(path_or_file=log_entries,
-                           mimetype=Mimetype.TEXT.value,
+                           mimetype=Mimetype.TEXT,
                            as_attachment=log_file is not None,
                            download_name=log_file)
     else:
         # yes, report the failure
-        # noinspection PyTypeChecker
         result = Response(response=json.dumps(obj={"errors": errors}),
                           status=400,
-                          mimetype=Mimetype.JSON.value)
+                          mimetype=Mimetype.JSON)
 
     return result
 
@@ -401,7 +398,3 @@ def __get_level_value(log_label: str) -> int:
             result = LogLevel.NOTSET         # 0
 
     return result
-
-
-# initialize the logger
-logging_startup()
