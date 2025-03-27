@@ -50,11 +50,6 @@ class LogParam(StrEnum):
     LOG_TIMESTAMP = "log-timestamp"     # defaults to '%Y-%m-%d %H:%M:%S'
 
 
-VALID_GET_PARAMS: list[str] = [
-    "log-filename", "log-level", "log-thread",
-    "log-from-datetime", "log-to-datetime", "log-last-days", "log-last-hours"
-]
-
 PYPOMES_LOGGER: logging.Logger | None = None
 _LOG_CONFIG_DATA: dict[LogParam, Any] = {}
 
@@ -80,23 +75,23 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
                                     _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL) or
                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
                                                 def_value=LogLabel.NOTSET))[0].upper()
-    logging_format: str = scheme.get(str(LogParam.LOG_FORMAT),
+    logging_format: str = scheme.get(LogParam.LOG_FORMAT,
                                      _LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT) or
                                      env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
                                                  def_value=__LOG_DEFAULT_FORMAT))
-    logging_style: str = scheme.get(str(LogParam.LOG_STYLE),
+    logging_style: str = scheme.get(LogParam.LOG_STYLE,
                                     _LOG_CONFIG_DATA.get(LogParam.LOG_STYLE) or
                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
                                                 def_value="{"))
-    logging_datetime: str = scheme.get(str(LogParam.LOG_TIMESTAMP),
+    logging_datetime: str = scheme.get(LogParam.LOG_TIMESTAMP,
                                        _LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
                                                    def_value=DatetimeFormat.INV))
-    logging_filemode: str = scheme.get(str(LogParam.LOG_FILEMODE),
+    logging_filemode: str = scheme.get(LogParam.LOG_FILEMODE,
                                        _LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
                                                    def_value="w"))
-    logging_filepath: Path = Path(scheme.get(str(LogParam.LOG_FILEPATH),
+    logging_filepath: Path = Path(scheme.get(LogParam.LOG_FILEPATH,
                                              _LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH) or
                                              env_get_path(key=f"{APP_PREFIX}_LOGGING_FILEPATH",
                                                           def_value=__LOG_DEFAULT_FILEPATH)))
@@ -120,12 +115,12 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
 
     # start and configure the logger
     PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
-    logging.basicConfig(filename=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH),
-                        filemode=_LOG_CONFIG_DATA.get(LogParam.LOG_FILEMODE),
-                        format=_LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT),
-                        datefmt=_LOG_CONFIG_DATA.get(LogParam.LOG_TIMESTAMP),
-                        style=_LOG_CONFIG_DATA.get(LogParam.LOG_STYLE),
-                        level=__get_level_value(_LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL)),
+    logging.basicConfig(filename=_LOG_CONFIG_DATA[LogParam.LOG_FILEPATH],
+                        filemode=_LOG_CONFIG_DATA[LogParam.LOG_FILEMODE],
+                        format=_LOG_CONFIG_DATA[LogParam.LOG_FORMAT],
+                        datefmt=_LOG_CONFIG_DATA[LogParam.LOG_TIMESTAMP],
+                        style=_LOG_CONFIG_DATA[LogParam.LOG_STYLE],
+                        level=__get_level_value(_LOG_CONFIG_DATA[LogParam.LOG_LEVEL]),
                         force=force_reset)
     for handler in logging.root.handlers:
         handler.addFilter(filter=logging.Filter(__LOG_ID))
@@ -175,7 +170,7 @@ def logging_get_entries(errors: list[str],
     result: BytesIO | None = None
 
     # verify whether inspecting the log entries is possible
-    if _LOG_CONFIG_DATA.get(LogParam.LOG_FORMAT) != __LOG_DEFAULT_FORMAT and \
+    if _LOG_CONFIG_DATA[LogParam.LOG_FORMAT] != __LOG_DEFAULT_FORMAT and \
        (log_level or log_from or log_to or log_thread):
         # no, report the problem
         errors.append("It is not possible to apply level, timestamp "
@@ -184,7 +179,7 @@ def logging_get_entries(errors: list[str],
     else:
         # yes, proceed
         result = BytesIO()
-        filepath: Path = _LOG_CONFIG_DATA.get(LogParam.LOG_FILEPATH)
+        filepath: Path = _LOG_CONFIG_DATA[LogParam.LOG_FILEPATH]
         with filepath.open() as f:
             line: str = f.readline()
             while line:
@@ -222,8 +217,8 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     errors: list[str] = []
 
     # obtain the logging level (defaults to current level)
-    log_level: str = scheme.get(str(LogParam.LOG_LEVEL),
-                                _LOG_CONFIG_DATA.get(LogParam.LOG_LEVEL))
+    log_level: str = scheme.get(LogParam.LOG_LEVEL,
+                                _LOG_CONFIG_DATA[LogParam.LOG_LEVEL])
     # obtain the thread id
     log_thread: str = scheme.get("log-thread")
 
@@ -367,7 +362,11 @@ def __assert_params(errors: list[str],
                     method: str,
                     scheme: dict) -> None:
 
-    params: list[str] = VALID_GET_PARAMS if method == "GET" else list(map(str, LogParam))
+    valid_params: list[str] = [
+        "log-filename", "log-level", "log-thread",
+        "log-from-datetime", "log-to-datetime", "log-last-days", "log-last-hours"
+    ]
+    params: list[str] = valid_params if method == "GET" else list(map(str, LogParam))
     for key in scheme:
         if key not in params:
             # 122: Attribute is unknown or invalid in this context
@@ -384,17 +383,21 @@ def __get_level_value(log_label: str) -> int:
     """
     result: int
     match log_label:
-        case str(LogLabel.DEBUG) | "D":
+        case LogLabel.DEBUG | "D":
             result = LogLevel.DEBUG          # 10
-        case str(LogLabel.INFO) | "I":
+        case LogLabel.INFO | "I":
             result = LogLevel.INFO           # 20
-        case str(LogLabel.WARNING) | "W":
+        case LogLabel.WARNING | "W":
             result = LogLevel.WARNING        # 30
-        case str(LogLabel.ERROR) | "E":
+        case LogLabel.ERROR | "E":
             result = LogLevel.ERROR          # 40
-        case str(LogLabel.CRITICAL) | "C":
+        case LogLabel.CRITICAL | "C":
             result = LogLevel.CRITICAL       # 50
         case _:
             result = LogLevel.NOTSET         # 0
 
     return result
+
+
+# initialize the logger
+logging_startup()
