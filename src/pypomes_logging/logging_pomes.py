@@ -72,27 +72,27 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     scheme = scheme or {}
     global PYPOMES_LOGGER
 
-    logging_level: str = scheme.get(LogParam.LOG_LEVEL.value,
+    logging_level: str = scheme.get(LogParam.LOG_LEVEL,
                                     _LOG_CONFIG.get(LogParam.LOG_LEVEL) or
                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                def_value=LogLabel.NOTSET.value)).upper()
-    logging_format: str = scheme.get(LogParam.LOG_FORMAT.value,
+                                                def_value=LogLabel.NOTSET)).upper()
+    logging_format: str = scheme.get(LogParam.LOG_FORMAT,
                                      _LOG_CONFIG.get(LogParam.LOG_FORMAT) or
                                      env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
                                                  def_value=__LOG_DEFAULT_FORMAT))
-    logging_style: str = scheme.get(LogParam.LOG_STYLE.value,
+    logging_style: str = scheme.get(LogParam.LOG_STYLE,
                                     _LOG_CONFIG.get(LogParam.LOG_STYLE) or
                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
                                                 def_value="{"))
-    logging_datetime: str = scheme.get(LogParam.LOG_TIMESTAMP.value,
+    logging_datetime: str = scheme.get(LogParam.LOG_TIMESTAMP,
                                        _LOG_CONFIG.get(LogParam.LOG_TIMESTAMP) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
-                                                   def_value=DatetimeFormat.INV.value))
-    logging_filemode: str = scheme.get(LogParam.LOG_FILEMODE.value,
+                                                   def_value=DatetimeFormat.INV))
+    logging_filemode: str = scheme.get(LogParam.LOG_FILEMODE,
                                        _LOG_CONFIG.get(LogParam.LOG_FILEMODE) or
                                        env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
                                                    def_value="w"))
-    logging_filepath: Path = Path(scheme.get(LogParam.LOG_FILEPATH.value,
+    logging_filepath: Path = Path(scheme.get(LogParam.LOG_FILEPATH,
                                              _LOG_CONFIG.get(LogParam.LOG_FILEPATH) or
                                              env_get_path(key=f"{APP_PREFIX}_LOGGING_FILEPATH",
                                                           def_value=__LOG_DEFAULT_FILEPATH)))
@@ -186,7 +186,7 @@ def logging_get_entries(errors: list[str],
             while line:
                 items: list[str] = line.split(sep=None,
                                               maxsplit=4)
-                msg_level: int = LogLevel.CRITICAL.value \
+                msg_level: int = LogLevel.CRITICAL \
                     if not log_level or len(items) < 3 \
                     else __get_level_value(log_label=items[2])
                 if (not log_level or msg_level >= __get_level_value(log_level)) and \
@@ -218,8 +218,7 @@ def logging_send_entries(scheme: dict[str, Any]) -> Response:
     errors: list[str] = []
 
     # obtain the logging level (defaults to current level)
-    # noinspection PyTypeChecker
-    log_level: str = scheme.get(LogParam.LOG_LEVEL.value,
+    log_level: str = scheme.get(LogParam.LOG_LEVEL,
                                 _LOG_CONFIG[LogParam.LOG_LEVEL])
     # obtain the thread id
     log_thread: str = scheme.get("log-thread")
@@ -383,18 +382,18 @@ def __get_level_value(log_label: str) -> int:
     """
     result: int
     match log_label:
-        case LogLabel.DEBUG.value | "D":
-            result = LogLevel.DEBUG.value          # 10
-        case LogLabel.INFO.value | "I":
-            result = LogLevel.INFO.value           # 20
-        case LogLabel.WARNING.value | "W":
-            result = LogLevel.WARNING.value        # 30
-        case LogLabel.ERROR.value | "E":
-            result = LogLevel.ERROR.value          # 40
-        case LogLabel.CRITICAL.value | "C":
-            result = LogLevel.CRITICAL.value       # 50
+        case LogLabel.DEBUG | "D":
+            result = LogLevel.DEBUG          # 10
+        case LogLabel.INFO | "I":
+            result = LogLevel.INFO           # 20
+        case LogLabel.WARNING | "W":
+            result = LogLevel.WARNING        # 30
+        case LogLabel.ERROR | "E":
+            result = LogLevel.ERROR          # 40
+        case LogLabel.CRITICAL | "C":
+            result = LogLevel.CRITICAL       # 50
         case _:
-            result = LogLevel.NOTSET.value         # 0
+            result = LogLevel.NOTSET         # 0
 
     return result
 
