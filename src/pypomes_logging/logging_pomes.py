@@ -4,11 +4,12 @@ import logging
 from datetime import datetime, timedelta
 from flask import Response, request, jsonify, send_file
 from io import BytesIO
-from enum import IntEnum, StrEnum, auto
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from pypomes_core import (
     APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat,
-    env_get_str, env_get_path, datetime_parse, dict_jsonify,
+    env_get_str, env_get_path, env_get_enum,
+    datetime_parse, dict_jsonify,
     validate_format_error, validate_format_errors
 )
 from typing import Any, Final
@@ -24,18 +25,6 @@ class LogLevel(IntEnum):
     WARNING = logging.WARNING       # 30
     ERROR = logging.ERROR           # 40
     CRITICAL = logging.CRITICAL     # 50
-
-
-class LogLabel(StrEnum):
-    """
-    Labels for the Python log levels.
-    """
-    NOTSET = auto()
-    DEBUG = auto()
-    INFO = auto()
-    WARNING = auto()
-    ERROR = auto()
-    CRITICAL = auto()
 
 
 class LogGetParam(StrEnum):
@@ -58,7 +47,7 @@ class LogPostParam(StrEnum):
     LOG_FILEMODE = "log-filemode"    # 'a' or 'w'
     LOG_FILEPATH = "log-filepath"    # a valid path
     LOG_FORMAT = "log-format"        # defaults to __LOG_DEFAULT_FORMAT (see below)
-    LOG_LEVEL = "log-level"          # 'debug', 'info', 'warning', 'error', 'critical', defaults to 'debug'
+    LOG_LEVEL = "log-level"          # 'debug', 'info', 'warning', 'error', 'critical', 'notset' (default)
     LOG_STYLE = "log-style"          # '{', '%', '$'
     LOG_TIMESTAMP = "log-timestamp"  # defaults to '%Y-%m-%d %H:%M:%S'
 
@@ -72,7 +61,6 @@ __LOG_DEFAULT_FORMAT: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
 __LOG_DEFAULT_FILEPATH: Final[Path] = Path(TEMP_FOLDER, f"{APP_PREFIX.lower()}.log")
 
 
-# noinspection PyTypeChecker
 def logging_startup(scheme: dict[str, Any] = None) -> None:
     """
     Configure/reconfigure and start/restart the log service.
@@ -85,10 +73,12 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
     scheme = scheme or {}
     global PYPOMES_LOGGER
 
-    logging_level: str = scheme.get(LogPostParam.LOG_LEVEL,
-                                    _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
-                                    env_get_str(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                def_value=LogLabel.NOTSET)).upper()
+    logging_level: LogLevel = scheme.get(LogPostParam.LOG_LEVEL,
+                                         _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
+                                         env_get_enum(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                      enum_class=LogLevel,
+                                                      use_names=True,
+                                                      def_value=LogLevel.NOTSET))
     logging_format: str = scheme.get(LogPostParam.LOG_FORMAT,
                                      _LOG_CONFIG.get(LogPostParam.LOG_FORMAT) or
                                      env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
@@ -134,7 +124,7 @@ def logging_startup(scheme: dict[str, Any] = None) -> None:
                         format=_LOG_CONFIG[LogPostParam.LOG_FORMAT],
                         datefmt=_LOG_CONFIG[LogPostParam.LOG_TIMESTAMP],
                         style=_LOG_CONFIG[LogPostParam.LOG_STYLE],
-                        level=__get_level_value(_LOG_CONFIG[LogPostParam.LOG_LEVEL]),
+                        level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
                         force=force_reset)
     for handler in logging.root.handlers:
         handler.addFilter(filter=logging.Filter(__LOG_ID))
@@ -392,16 +382,16 @@ def __get_level_value(log_label: str) -> int:
     :return: the internal logging severity value
     """
     result: int
-    match log_label:
-        case LogLabel.DEBUG | "D":
+    match log_label.lower():
+        case LogLevel.DEBUG.name | "d":
             result = LogLevel.DEBUG          # 10
-        case LogLabel.INFO | "I":
+        case LogLevel.INFO.name | "i":
             result = LogLevel.INFO           # 20
-        case LogLabel.WARNING | "W":
+        case LogLevel.WARNING.name | "w":
             result = LogLevel.WARNING        # 30
-        case LogLabel.ERROR | "E":
+        case LogLevel.ERROR | "e":
             result = LogLevel.ERROR          # 40
-        case LogLabel.CRITICAL | "C":
+        case LogLevel.CRITICAL | "c":
             result = LogLevel.CRITICAL       # 50
         case _:
             result = LogLevel.NOTSET         # 0
