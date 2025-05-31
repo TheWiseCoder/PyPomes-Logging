@@ -9,7 +9,7 @@ from pathlib import Path
 from pypomes_core import (
     APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat,
     env_get_str, env_get_path, env_get_enum,
-    datetime_parse, dict_jsonify,
+    datetime_parse, dict_jsonify, str_as_list,
     validate_enum, validate_format_error, validate_format_errors
 )
 from typing import Any, Final
@@ -33,7 +33,7 @@ class LogGetParam(StrEnum):
     """
     LOG_FILENAME = "log-filename"            # a POSIX-style filename
     LOG_LEVEL = "log-level"                  # 'debug', 'info', 'warning', 'error', 'critical', defaults to 'debug'
-    LOG_THREAD = "log-thread"                # thread identification
+    LOG_THREADS = "log-threads"              # threads identification
     LOG_FROM_DATETIME = "log-from-datetime"  # interval start (YYYYMMDDhhmmss)
     LOG_TO_DATETIME = "log-to-datetime"      # interval finish (YYYYMMDDhhmmss)
     LOG_LAST_DAYS = "log-last-days"          # back days to start from
@@ -144,7 +144,7 @@ def logging_get_entries(errors: list[str],
                         log_level: LogLevel = None,
                         log_from: datetime = None,
                         log_to: datetime = None,
-                        log_thread: str = None) -> BytesIO:
+                        log_threads: list[str] = None) -> BytesIO:
     """
     Extract and return entries in the current logging file.
 
@@ -167,7 +167,7 @@ def logging_get_entries(errors: list[str],
     :param log_level: the logging level (defaults to all levels)
     :param log_from: the initial timestamp (defaults to unspecified)
     :param log_to: the finaL timestamp (defaults to unspecified)
-    :param log_thread: the thread originating the log entries (defaults to all threads)
+    :param log_threads: the threads originating the log entries (defaults to all threads)
     :return: the logging entries meeting the specified criteria
     """
     # initialize the return variable
@@ -175,10 +175,10 @@ def logging_get_entries(errors: list[str],
 
     # verify whether inspecting the log entries is possible
     if _LOG_CONFIG[LogPostParam.LOG_FORMAT] != __LOG_DEFAULT_FORMAT and \
-       (log_level or log_from or log_to or log_thread):
+       (log_level or log_from or log_to or log_threads):
         # no, report the problem
         errors.append("It is not possible to apply level, timestamp "
-                      "or thread criteria to filter log entries, "
+                      "or threads criteria to filter log entries, "
                       "as the log format has been customized")
     else:
         # yes, proceed
@@ -193,7 +193,7 @@ def logging_get_entries(errors: list[str],
                     if not log_level or len(items) < 3 \
                     else __get_level_value(log_label=items[2])
                 if (not log_level or msg_level >= log_level) and \
-                   (not log_thread or (len(items) > 3 and log_thread == items[3])):
+                   (not log_threads or (len(items) > 3 and items[3] in log_threads)):
                     if len(items) > 1 and (log_from or log_to):
                         timestamp: datetime = datetime_parse(f"{items[0]} {items[1]}")
                         if not (timestamp or
@@ -227,7 +227,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
                                         enum_class=LogLevel,
                                         default=_LOG_CONFIG[LogPostParam.LOG_LEVEL])
     # obtain the thread id
-    log_thread: str = input_params.get(LogGetParam.LOG_THREAD)
+    log_threads: list[str] = str_as_list(source=input_params.get(LogGetParam.LOG_THREADS))
 
     # obtain the  timestamps
     log_from: datetime = datetime_parse(dt_str=input_params.get(LogGetParam.LOG_FROM_DATETIME))
@@ -246,7 +246,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
                                                log_level=log_level,
                                                log_from=log_from,
                                                log_to=log_to,
-                                               log_thread=log_thread)
+                                               log_threads=log_threads)
     # errors ?
     if not errors:
         # no, return the log entries requested

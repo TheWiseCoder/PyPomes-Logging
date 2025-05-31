@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_logging"
-version = "0.6.3"
+version = "0.6.4"
 authors = [
   { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
@@ -19,8 +19,8 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "Flask>=3.1.0",
-    "pypomes_core>=2.2.2"
+    "Flask>=3.1.1",
+    "pypomes_core>=2.3.6"
 ]
 
 [project.urls]
