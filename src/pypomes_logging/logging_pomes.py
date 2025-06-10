@@ -275,30 +275,25 @@ def logging_service() -> Response:
     They are specified according to the pattern
     *log-filename=<string>&log-level=<debug|info|warning|error|critical>&
     log-from_datetime=YYYYMMDDhhmmss&log-to-datetime=YYYYMMDDhhmmss&log-last_days=<n>&log-last_hours=<n>>*:
-        - *log-filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
-        - *log-level*: the logging level of the entries (defaults to *debug*)
-        - *log-thread*: the thread originating the log entries (defaults to all threads)
-        - *log-from-datetime*: the start timestamp
-        - log-to-datetime*: the finish timestamp
-        - *log-last-days*: how many days before current date
-        - *log-last-hours*: how may hours before current time
-    The *POST* operation configures and starts/restarts the logger.
-    These are the optional query parameters:
-        - *log-filepath*: path for the log file
-        - *log-filemode*: the mode for log file opening (a- append, w- truncate)
-        - *log-level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
-        - *log-format*: the information and formats to be written to the log
-        - *log-style*: the style used for building the 'log-format' parameter
-        - *log-timestamp*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
-    For omitted parameters, current existing parameter values are used, or obtained from environment variables.
+      - *log-filename*: the filename for saving the downloaded the data (if omitted, browser displays the data)
+      - *log-level*: the logging level of the entries (defaults to *debug*)
+      - *log-thread*: the thread originating the log entries (defaults to all threads)
+      - *log-from-datetime*: the start timestamp
+      - *log-to-datetime*: the finish timestamp
+      - *log-last-days*: how many days before current date
+      - *log-last-hours*: how may hours before current time
+
+    The *POST* operation configures and starts/restarts the logger. These are the optional query parameters:
+      - *log-filepath*: path for the log file
+      - *log-filemode*: the mode for log file opening (a- append, w- truncate)
+      - *log-level*: the logging level (*debug*, *info*, *warning*, *error*, *critical*)
+      - *log-format*: the information and formats to be written to the log
+      - *log-style*: the style used for building the 'log-format' parameter
+      - *log-timestamp*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
+    For omitted parameters, current existing parameter values are used, possibly obtained from environment variables.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
     """
-    # register the request
-    req_query: str = request.query_string.decode()
-    if PYPOMES_LOGGER:
-        PYPOMES_LOGGER.info(f"Request {request.path}?{req_query}")
-
     # obtain the request parameters
     input_params: dict[str, Any] = {}
     # attempt to retrieve the JSON data in body
@@ -332,9 +327,13 @@ def logging_service() -> Response:
         }
         result = jsonify(reply)
 
-    # log the response
+    # log the operation
     if PYPOMES_LOGGER:
-        PYPOMES_LOGGER.info(f"Response {request.path}?{req_query}: {result}")
+        params: str = json.dumps(obj=input_params,
+                                 ensure_ascii=False)
+        msg: str = (f"Request {request.method}:{request.path}, "
+                    f"params {params}, response {result}")
+        PYPOMES_LOGGER.info(msg=msg)
 
     return result
 
