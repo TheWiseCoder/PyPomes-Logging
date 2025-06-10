@@ -305,9 +305,9 @@ def logging_service() -> Response:
     # validate the request parameters
     errors: list[str] = []
     if input_params:
-        params: Any = LogGetParam if request.method == "GET" else LogPostParam
+        enum_class: Any = LogGetParam if request.method == "GET" else LogPostParam
         __assert_params(errors=errors,
-                        params=list(map(str, params)),
+                        params=list(map(str, enum_class)),
                         input_params=input_params)
     # run the request
     result: Response
@@ -329,10 +329,10 @@ def logging_service() -> Response:
 
     # log the operation
     if PYPOMES_LOGGER:
-        params: str = json.dumps(obj=input_params,
-                                 ensure_ascii=False)
+        enum_class: str = json.dumps(obj=input_params,
+                                     ensure_ascii=False)
         msg: str = (f"Request {request.method}:{request.path}, "
-                    f"params {params}, response {result}")
+                    f"params {enum_class}, response {result}")
         PYPOMES_LOGGER.info(msg=msg)
 
     return result
