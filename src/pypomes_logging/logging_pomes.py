@@ -71,7 +71,6 @@ def logging_startup(input_params: dict[str, Any] = None) -> None:
     :param input_params: optional log parameters and corresponding values
     """
     input_params = input_params or {}
-    global PYPOMES_LOGGER
 
     logging_level: LogLevel = input_params.get(LogPostParam.LOG_LEVEL,
                                                _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
@@ -109,6 +108,7 @@ def logging_startup(input_params: dict[str, Any] = None) -> None:
     _LOG_CONFIG[LogPostParam.LOG_FILEPATH] = logging_filepath
 
     # is there a logger ?
+    global PYPOMES_LOGGER
     if PYPOMES_LOGGER:
         # yes, shut it down
         logging.shutdown()
@@ -119,13 +119,21 @@ def logging_startup(input_params: dict[str, Any] = None) -> None:
 
     # start and configure the logger
     PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
-    logging.basicConfig(filename=_LOG_CONFIG[LogPostParam.LOG_FILEPATH],
-                        filemode=_LOG_CONFIG[LogPostParam.LOG_FILEMODE],
-                        format=_LOG_CONFIG[LogPostParam.LOG_FORMAT],
-                        datefmt=_LOG_CONFIG[LogPostParam.LOG_TIMESTAMP],
-                        style=_LOG_CONFIG[LogPostParam.LOG_STYLE],
-                        level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
-                        force=force_reset)
+    # decide whether the logger's output is to be streamed
+    if str(logging_filepath) == "stdout":
+        logging.basicConfig(format=_LOG_CONFIG[LogPostParam.LOG_FORMAT],
+                            datefmt=_LOG_CONFIG[LogPostParam.LOG_TIMESTAMP],
+                            style=_LOG_CONFIG[LogPostParam.LOG_STYLE],
+                            level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
+                            force=force_reset)
+    else:
+        logging.basicConfig(filename=_LOG_CONFIG[LogPostParam.LOG_FILEPATH],
+                            filemode=_LOG_CONFIG[LogPostParam.LOG_FILEMODE],
+                            format=_LOG_CONFIG[LogPostParam.LOG_FORMAT],
+                            datefmt=_LOG_CONFIG[LogPostParam.LOG_TIMESTAMP],
+                            style=_LOG_CONFIG[LogPostParam.LOG_STYLE],
+                            level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
+                            force=force_reset)
     for handler in logging.root.handlers:
         handler.addFilter(filter=logging.Filter(__LOG_ID))
 
@@ -140,11 +148,11 @@ def logging_shutdown() -> None:
         PYPOMES_LOGGER = None
 
 
-def logging_get_entries(errors: list[str],
-                        log_level: LogLevel = None,
+def logging_get_entries(log_level: LogLevel = None,
                         log_from: datetime = None,
                         log_to: datetime = None,
-                        log_threads: list[str] = None) -> BytesIO:
+                        log_threads: list[str] = None,
+                        errors: list[str] = None) -> BytesIO:
     """
     Extract and return entries in the current logging file.
 
@@ -163,25 +171,19 @@ def logging_get_entries(errors: list[str],
         *lineno:3d* first 3 digits of the line number
         *message*: the log message
 
-    :param errors: incidental error messages
     :param log_level: the logging level (defaults to all levels)
     :param log_from: the initial timestamp (defaults to unspecified)
     :param log_to: the finaL timestamp (defaults to unspecified)
     :param log_threads: the threads originating the log entries (defaults to all threads)
+    :param errors: incidental error messages
     :return: the logging entries meeting the specified criteria
     """
     # initialize the return variable
     result: BytesIO | None = None
 
     # verify whether inspecting the log entries is possible
-    if _LOG_CONFIG[LogPostParam.LOG_FORMAT] != __LOG_DEFAULT_FORMAT and \
-       (log_level or log_from or log_to or log_threads):
-        # no, report the problem
-        errors.append("It is not possible to apply level, timestamp "
-                      "or threads criteria to filter log entries, "
-                      "as the log format has been customized")
-    else:
-        # yes, proceed
+    if _LOG_CONFIG[LogPostParam.LOG_FORMAT] == __LOG_DEFAULT_FORMAT or not \
+            (log_level or log_from or log_to or log_threads):
         result = BytesIO()
         filepath: Path = _LOG_CONFIG[LogPostParam.LOG_FILEPATH]
         with filepath.open() as f:
@@ -203,6 +205,10 @@ def logging_get_entries(errors: list[str],
                     else:
                         result.write(line.encode())
                 line = f.readline()
+    elif isinstance(errors, list):
+        errors.append("It is not possible to apply level, timestamp "
+                      "or threads criteria to filter log entries, "
+                      "as the log format has been customized")
 
     return result
 
@@ -221,11 +227,11 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
     errors: list[str] = []
 
     # obtain the logging level (defaults to current level)
-    log_level: LogLevel = validate_enum(errors=errors,
-                                        source=input_params,
+    log_level: LogLevel = validate_enum(source=input_params,
                                         attr=LogPostParam.LOG_LEVEL,
                                         enum_class=LogLevel,
-                                        default=_LOG_CONFIG[LogPostParam.LOG_LEVEL])
+                                        default=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
+                                        errors=errors)
     # obtain the thread id
     log_threads: list[str] = str_as_list(source=input_params.get(LogGetParam.LOG_THREADS))
 
@@ -242,14 +248,13 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
             log_from = datetime.now() - timedelta(days=offset_days,
                                                   hours=offset_hours)
     # retrieve the log entries
-    log_entries: BytesIO = logging_get_entries(errors=errors,
-                                               log_level=log_level,
+    log_entries: BytesIO = logging_get_entries(log_level=log_level,
                                                log_from=log_from,
                                                log_to=log_to,
-                                               log_threads=log_threads)
-    # errors ?
+                                               log_threads=log_threads,
+                                               errors=errors)
     if not errors:
-        # no, return the log entries requested
+        # return the log entries requested
         log_file = input_params.get(LogGetParam.LOG_FILENAME)
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
@@ -257,7 +262,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
                            as_attachment=log_file is not None,
                            download_name=log_file)
     else:
-        # yes, report the failure
+        # report the failure
         result = Response(response=json.dumps(obj={"errors": errors}),
                           status=400,
                           mimetype=Mimetype.JSON)
@@ -267,7 +272,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
 
 # @flask_app.route(rule="/logging",
 #                  methods=["GET", "POST"])
-def logging_service() -> Response:
+def service_logging() -> Response:
     """
     Entry pointy for configuring and retrieving the execution log of the system.
 
@@ -291,6 +296,8 @@ def logging_service() -> Response:
       - *log-style*: the style used for building the 'log-format' parameter
       - *log-timestamp*: the format for displaying the date and time (defaults to YYYY-MM-DD HH:MM:SS)
     For omitted parameters, current existing parameter values are used, possibly obtained from environment variables.
+    If *log-filepath* has the special value *stdout*, the log entries are streamed to the standard output,
+    rather the written to a file, in which case *log-filemode* is ignored.
 
     :return: the requested log data, on 'GET', and the operation status, on 'POST'
     """
@@ -302,13 +309,19 @@ def logging_service() -> Response:
     # obtain parameters in URL query
     input_params.update(request.values)
 
+    # log the request
+    params: str = json.dumps(obj=input_params,
+                             ensure_ascii=False)
+    msg: str = f"Request {request.method}:{request.path}, params {params}"
+    PYPOMES_LOGGER.info(msg=msg)
+
     # validate the request parameters
     errors: list[str] = []
     if input_params:
         enum_class: Any = LogGetParam if request.method == "GET" else LogPostParam
-        __assert_params(errors=errors,
-                        params=list(map(str, enum_class)),
-                        input_params=input_params)
+        __assert_params(params=list(map(str, enum_class)),
+                        input_params=input_params,
+                        errors=errors)
     # run the request
     result: Response
     if errors:
@@ -327,13 +340,8 @@ def logging_service() -> Response:
         }
         result = jsonify(reply)
 
-    # log the operation
-    if PYPOMES_LOGGER:
-        enum_class: str = json.dumps(obj=input_params,
-                                     ensure_ascii=False)
-        msg: str = (f"Request {request.method}:{request.path}, "
-                    f"params {enum_class}, response {result}")
-        PYPOMES_LOGGER.info(msg=msg)
+    # log the response
+    PYPOMES_LOGGER.info(msg=f"Response {result}")
 
     return result
 
@@ -359,9 +367,9 @@ def logging_get_params() -> dict[str, Any]:
     return {str(k): v for (k, v) in _LOG_CONFIG.items()}
 
 
-def __assert_params(errors: list[str],
-                    params: list[str],
-                    input_params: dict) -> None:
+def __assert_params(params: list[str],
+                    input_params: dict,
+                    errors: list[str]) -> None:
     """
     Assert that the provided parameters are acceptable.
 
