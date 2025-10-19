@@ -233,7 +233,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
                                         default=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
                                         errors=errors)
     # obtain the thread id
-    log_threads: list[str] = str_as_list(source=input_params.get(LogGetParam.LOG_THREADS))
+    log_threads: list[str] = str_as_list(input_params.get(LogGetParam.LOG_THREADS))
 
     # obtain the  timestamps
     log_from: datetime = datetime_parse(dt_str=input_params.get(LogGetParam.LOG_FROM_DATETIME))
