@@ -1,8 +1,10 @@
-import contextlib
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Response, request, jsonify, send_file
+from flask import (
+    Request, Response,
+    request, jsonify, send_file
+)
 from io import BytesIO
 from enum import IntEnum, StrEnum
 from pathlib import Path
@@ -61,43 +63,43 @@ __LOG_DEFAULT_FORMAT: Final[str] = ("{asctime} {levelname:1.1} {thread:5d} "
 __LOG_DEFAULT_FILEPATH: Final[Path] = Path(TEMP_FOLDER, f"{APP_PREFIX.lower()}.log")
 
 
-def logging_startup(input_params: dict[str, Any] = None) -> None:
+def logging_startup(args: dict[str, Any] = None) -> None:
     """
     Configure/reconfigure and start/restart the log service.
 
     The parameters for configuring the log can be found either as environment variables, or as
-    attributes in *input_params*. Default values are used, if necessary.
+    attributes in *args*. Default values are used, if necessary.
 
-    :param input_params: optional log parameters and corresponding values
+    :param args: optional log parameters and corresponding values
     """
-    input_params = input_params or {}
+    args = args or {}
 
-    logging_level: LogLevel = input_params.get(LogPostParam.LOG_LEVEL,
-                                               _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
-                                               env_get_enum(key=f"{APP_PREFIX}_LOGGING_LEVEL",
-                                                            enum_class=LogLevel,
-                                                            use_names=True,
-                                                            def_value=LogLevel.NOTSET))
-    logging_format: str = input_params.get(LogPostParam.LOG_FORMAT,
-                                           _LOG_CONFIG.get(LogPostParam.LOG_FORMAT) or
-                                           env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
-                                                       def_value=__LOG_DEFAULT_FORMAT))
-    logging_style: str = input_params.get(LogPostParam.LOG_STYLE,
-                                          _LOG_CONFIG.get(LogPostParam.LOG_STYLE) or
-                                          env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
-                                                      def_value="{"))
-    logging_datetime: str = input_params.get(LogPostParam.LOG_TIMESTAMP,
-                                             _LOG_CONFIG.get(LogPostParam.LOG_TIMESTAMP) or
-                                             env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
-                                                         def_value=DatetimeFormat.INV))
-    logging_filemode: str = input_params.get(LogPostParam.LOG_FILEMODE,
-                                             _LOG_CONFIG.get(LogPostParam.LOG_FILEMODE) or
-                                             env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
-                                                         def_value="w"))
-    logging_filepath: Path = Path(input_params.get(LogPostParam.LOG_FILEPATH,
-                                                   _LOG_CONFIG.get(LogPostParam.LOG_FILEPATH) or
-                                                   env_get_path(key=f"{APP_PREFIX}_LOGGING_FILEPATH",
-                                                                def_value=__LOG_DEFAULT_FILEPATH)))
+    logging_level: LogLevel = args.get(LogPostParam.LOG_LEVEL,
+                                       _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
+                                       env_get_enum(key=f"{APP_PREFIX}_LOGGING_LEVEL",
+                                                    enum_class=LogLevel,
+                                                    use_names=True,
+                                                    def_value=LogLevel.NOTSET))
+    logging_format: str = args.get(LogPostParam.LOG_FORMAT,
+                                   _LOG_CONFIG.get(LogPostParam.LOG_FORMAT) or
+                                   env_get_str(key=f"{APP_PREFIX}_LOGGING_FORMAT",
+                                               def_value=__LOG_DEFAULT_FORMAT))
+    logging_style: str = args.get(LogPostParam.LOG_STYLE,
+                                  _LOG_CONFIG.get(LogPostParam.LOG_STYLE) or
+                                  env_get_str(key=f"{APP_PREFIX}_LOGGING_STYLE",
+                                              def_value="{"))
+    logging_datetime: str = args.get(LogPostParam.LOG_TIMESTAMP,
+                                     _LOG_CONFIG.get(LogPostParam.LOG_TIMESTAMP) or
+                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_TIMESTAMP",
+                                                 def_value=DatetimeFormat.INV))
+    logging_filemode: str = args.get(LogPostParam.LOG_FILEMODE,
+                                     _LOG_CONFIG.get(LogPostParam.LOG_FILEMODE) or
+                                     env_get_str(key=f"{APP_PREFIX}_LOGGING_FILEMODE",
+                                                 def_value="w"))
+    logging_filepath: Path = Path(args.get(LogPostParam.LOG_FILEPATH,
+                                           _LOG_CONFIG.get(LogPostParam.LOG_FILEPATH) or
+                                           env_get_path(key=f"{APP_PREFIX}_LOGGING_FILEPATH",
+                                                        def_value=__LOG_DEFAULT_FILEPATH)))
     logging_filepath.parent.mkdir(parents=True,
                                   exist_ok=True)
     _LOG_CONFIG[LogPostParam.LOG_LEVEL] = logging_level
@@ -213,11 +215,11 @@ def logging_get_entries(log_level: LogLevel = None,
     return result
 
 
-def logging_send_entries(input_params: dict[str, Any]) -> Response:
+def logging_send_entries(args: dict[str, Any]) -> Response:
     """
-    Retrieve from the log file, and send in response, the entries matching the criteria specified in *input_params*.
+    Retrieve from the log file, and send in response, the entries matching the criteria specified in *args*.
 
-    :param input_params: the criteria for filtering the records to be returned
+    :param args: the criteria for filtering the records to be returned
     :return: file containing the log entries requested
     """
     # declare the return variable
@@ -227,21 +229,21 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
     errors: list[str] = []
 
     # obtain the logging level (defaults to current level)
-    log_level: LogLevel = validate_enum(source=input_params,
+    log_level: LogLevel = validate_enum(source=args,
                                         attr=LogPostParam.LOG_LEVEL,
                                         enum_class=LogLevel,
                                         default=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
                                         errors=errors)
     # obtain the thread id
-    log_threads: list[str] = str_as_list(input_params.get(LogGetParam.LOG_THREADS))
+    log_threads: list[str] = str_as_list(args.get(LogGetParam.LOG_THREADS))
 
     # obtain the  timestamps
-    log_from: datetime = datetime_parse(dt_str=input_params.get(LogGetParam.LOG_FROM_DATETIME))
-    log_to: datetime = datetime_parse(dt_str=input_params.get(LogGetParam.LOG_TO_DATETIME))
+    log_from: datetime = datetime_parse(dt_str=args.get(LogGetParam.LOG_FROM_DATETIME))
+    log_to: datetime = datetime_parse(dt_str=args.get(LogGetParam.LOG_TO_DATETIME))
 
     if not log_from and not log_to:
-        last_days: str = input_params.get(LogGetParam.LOG_LAST_DAYS, "0")
-        last_hours: str = input_params.get(LogGetParam.LOG_LAST_HOURS, "0")
+        last_days: str = args.get(LogGetParam.LOG_LAST_DAYS, "0")
+        last_hours: str = args.get(LogGetParam.LOG_LAST_HOURS, "0")
         offset_days: int = int(last_days) if last_days.isdigit() else 0
         offset_hours: int = int(last_hours) if last_hours.isdigit() else 0
         if offset_days or offset_hours:
@@ -255,7 +257,7 @@ def logging_send_entries(input_params: dict[str, Any]) -> Response:
                                                errors=errors)
     if not errors:
         # return the log entries requested
-        log_file = input_params.get(LogGetParam.LOG_FILENAME)
+        log_file = args.get(LogGetParam.LOG_FILENAME)
         log_entries.seek(0)
         result = send_file(path_or_file=log_entries,
                            mimetype=Mimetype.TEXT,
@@ -299,28 +301,20 @@ def service_logging() -> Response:
     If *log-filepath* has the special value *stdout*, the log entries are streamed to the standard output,
     rather the written to a file, in which case *log-filemode* is ignored.
 
-    :return: the requested log data, on 'GET', and the operation status, on 'POST'
+    :return: the requested log data, on *GET*, or the operation status, on *POST*
     """
-    # obtain the request parameters
-    input_params: dict[str, Any] = {}
-    # attempt to retrieve the JSON data in body
-    with contextlib.suppress(Exception):
-        input_params.update(request.get_json())
-    # obtain parameters in URL query
-    input_params.update(request.values)
+    # retrieve the request parameters
+    args: dict[str, Any] = dict(request.get_json(silent=True) or request.values or {})
 
     # log the request
-    params: str = json.dumps(obj=input_params,
-                             ensure_ascii=False)
-    msg: str = f"Request {request.method}:{request.path}, params {params}"
-    PYPOMES_LOGGER.info(msg=msg)
+    PYPOMES_LOGGER.debug(msg=logging_log_init(req=request))
 
     # validate the request parameters
     errors: list[str] = []
-    if input_params:
+    if args:
         enum_class: Any = LogGetParam if request.method == "GET" else LogPostParam
         __assert_params(params=list(map(str, enum_class)),
-                        input_params=input_params,
+                        args=args,
                         errors=errors)
     # run the request
     result: Response
@@ -330,10 +324,10 @@ def service_logging() -> Response:
         result.status_code = 400
     elif request.method == "GET":
         # retrieve the log
-        result = logging_send_entries(input_params=input_params)
+        result = logging_send_entries(args=args)
     else:
         # reconfigure the log
-        logging_startup(input_params=input_params)
+        logging_startup(args=args)
         reply: dict[str, Any] = {
             "status": "Log restarted",
             "configuration": dict_jsonify(source=logging_get_params())
@@ -367,17 +361,36 @@ def logging_get_params() -> dict[str, Any]:
     return {str(k): v for (k, v) in _LOG_CONFIG.items()}
 
 
+def logging_log_init(req: Request) -> str:
+    """
+    Build the information on the start of an HTTP request for logging.
+
+    :param req: the reference HTTP request
+    :return: the information to be written to the log
+    """
+    # retrieve the request arguments
+    args: dict[str, Any] = dict(request.get_json(silent=True) or {})
+    args.update(request.values or {})
+
+    origin: str = req.headers.get(key="X-Forwarded-For",
+                                  default=req.remote_addr)
+    data: str = json.dumps(obj=args,
+                           ensure_ascii=False)
+
+    return f"Request {req.method}:{req.path}, from {origin}; {data}"
+
+
 def __assert_params(params: list[str],
-                    input_params: dict,
+                    args: dict,
                     errors: list[str]) -> None:
     """
     Assert that the provided parameters are acceptable.
 
     :param errors: incidental errors
     :param params: acceptable parameters
-    :param input_params: provided parameters and respective values
+    :param args: provided parameters and respective values
     """
-    for key in input_params:
+    for key in args:
         if key not in params:
             # 122: Attribute is unknown or invalid in this context
             errors.append(validate_format_error(122,  # noqa: PERF401
