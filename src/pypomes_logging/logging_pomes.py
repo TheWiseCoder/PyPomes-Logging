@@ -6,10 +6,10 @@ from flask import (
     request, jsonify, send_file
 )
 from io import BytesIO
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 from pathlib import Path
 from pypomes_core import (
-    APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat,
+    APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat, IntEnumUseName,
     env_get_str, env_get_path, env_get_enum,
     datetime_parse, dict_jsonify, str_as_list,
     validate_enum, validate_format_error, validate_format_errors
@@ -17,7 +17,7 @@ from pypomes_core import (
 from typing import Any, Final
 
 
-class LogLevel(IntEnum):
+class LogLevel(IntEnumUseName):
     """
     The Python log levels.
     """
@@ -78,7 +78,6 @@ def logging_startup(args: dict[str, Any] = None) -> None:
                                        _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
                                        env_get_enum(key=f"{APP_PREFIX}_LOGGING_LEVEL",
                                                     enum_class=LogLevel,
-                                                    use_names=True,
                                                     def_value=LogLevel.NOTSET))
     logging_format: str = args.get(LogPostParam.LOG_FORMAT,
                                    _LOG_CONFIG.get(LogPostParam.LOG_FORMAT) or
