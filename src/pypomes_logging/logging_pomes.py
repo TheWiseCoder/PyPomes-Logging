@@ -16,6 +16,8 @@ from pypomes_core import (
 )
 from typing import Any, Final
 
+from .log_forwarder import LogForwarder
+
 
 class LogLevel(IntEnumUseName):
     """
@@ -120,6 +122,10 @@ def logging_startup(args: dict[str, Any] = None) -> None:
 
     # start and configure the logger
     PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
+
+    # typically done when a top-level app is fully configured
+    PYPOMES_LOGGER.propagate = False
+
     # decide whether the logger's output is to be streamed
     if str(logging_filepath) == "stdout":
         logging.basicConfig(format=_LOG_CONFIG[LogPostParam.LOG_FORMAT],
@@ -135,6 +141,8 @@ def logging_startup(args: dict[str, Any] = None) -> None:
                             style=_LOG_CONFIG[LogPostParam.LOG_STYLE],
                             level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
                             force=force_reset)
+
+    # make sure all handlers use the default filter
     for handler in logging.root.handlers:
         handler.addFilter(filter=logging.Filter(__LOG_ID))
 
@@ -397,6 +405,30 @@ def logging_log_init(req: Request) -> str:
                            ensure_ascii=False)
 
     return f"Request {req.method}:{req.path}, from {origin}; {data}"
+
+
+def logging_log_forward(source_logger: logging.Logger,
+                        target_logger: logging.Logger) -> None:
+    """
+    Forward all activities of *source_logger* to *target_logger*, ensuring the use of the latter's properties.
+
+    :param source_logger: the logger being forwarded
+    :param target_logger: the logger which *source_logger* is being forwarded to
+    """
+    # create the forward handler
+    forwarder: LogForwarder = LogForwarder(target=target_logger)
+
+    if source_logger:
+        # ensure logs only go to 'target_logger' ('source_logger' might have handlers elsewhere)
+        source_logger.handlers.clear()
+        source_logger.addHandler(hdlr=forwarder)
+
+        # make 'source_logger' defer level decisions to 'target_logger'
+        source_logger.setLevel(logging.NOTSET)
+
+        # disable propagation to avoid the records going up to root and possibly being handled twice
+        # ('forwarder' already sends them to 'target_logger')
+        source_logger.propagate = False
 
 
 def __assert_params(params: list[str],
