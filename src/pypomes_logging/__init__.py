@@ -2,7 +2,8 @@ from .logging_pomes import (
     PYPOMES_LOGGER, LogLevel, LogGetParam, LogPostParam,
     logging_startup, logging_shutdown, service_logging,
     logging_get_entries, logging_send_entries,
-    logging_get_param, logging_get_params, logging_log_init
+    logging_get_param, logging_get_params,
+    logging_get_file_handler, logging_log_init
 )
 
 __all__ = [
@@ -10,7 +11,8 @@ __all__ = [
     "PYPOMES_LOGGER", "LogLevel", "LogGetParam", "LogPostParam",
     "logging_startup", "logging_shutdown", "service_logging",
     "logging_get_entries", "logging_send_entries",
-    "logging_get_param", "logging_get_params", "logging_log_init"
+    "logging_get_param", "logging_get_params",
+    "logging_get_file_handler", "logging_log_init"
 ]
 
 from importlib.metadata import version

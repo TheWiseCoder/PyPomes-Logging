@@ -318,7 +318,7 @@ def service_logging() -> Response:
     # run the request
     result: Response
     if errors:
-        reply_err: dict = {"errors": validate_format_errors(errors=errors)}
+        reply_err: dict = {"errors": validate_format_errors(errors)}
         result = jsonify(reply_err)
         result.status_code = 400
     elif request.method == "GET":
@@ -360,6 +360,26 @@ def logging_get_params() -> dict[str, Any]:
     return {str(k): v for (k, v) in _LOG_CONFIG.items()}
 
 
+def logging_get_file_handler() -> logging.FileHandler | None:
+    """
+    Get the file handler associated with *PYPOMES_LOGGER*
+
+    The logger must not have been stopped.
+
+    return: the file handle associated with *PYPOMES_LOGGER*, or *None* if not found
+    """
+    # instantiate the return valiable
+    result: logging.FileHandler | None = None
+
+    # obtain the file handler
+    for handler in PYPOMES_LOGGER.handlers:
+        if isinstance(handler, logging.FileHandler):
+            result = handler
+            break
+
+    return result
+
+
 def logging_log_init(req: Request) -> str:
     """
     Build the information on the start of an HTTP request for logging.
@@ -392,7 +412,7 @@ def __assert_params(params: list[str],
     for key in args:
         if key not in params:
             # 122: Attribute is unknown or invalid in this context
-            errors.append(validate_format_error(122,  # noqa: PERF401
+            errors.append(validate_format_error(122,
                                                 f"@{key}"))
 
 
