@@ -6,20 +6,18 @@ from flask import (
     request, jsonify, send_file
 )
 from io import BytesIO
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from pypomes_core import (
-    APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat, IntEnumUseName,
+    APP_PREFIX, TEMP_FOLDER, Mimetype, DatetimeFormat, EnumUseName,
     env_get_str, env_get_path, env_get_enum,
     datetime_parse, dict_jsonify, str_as_list,
     validate_enum, validate_format_error, validate_format_errors
 )
 from typing import Any, Final
 
-from .log_forwarder import LogForwarder
 
-
-class LogLevel(IntEnumUseName):
+class LogLevel(EnumUseName, IntEnum):
     """
     The Python log levels.
     """
@@ -76,6 +74,7 @@ def logging_startup(args: dict[str, Any] = None) -> None:
     """
     args = args or {}
 
+    # noinspection PyTypeChecker
     logging_level: LogLevel = args.get(LogPostParam.LOG_LEVEL,
                                        _LOG_CONFIG.get(LogPostParam.LOG_LEVEL) or
                                        env_get_enum(key=f"{APP_PREFIX}_LOGGING_LEVEL",
@@ -110,21 +109,17 @@ def logging_startup(args: dict[str, Any] = None) -> None:
     _LOG_CONFIG[LogPostParam.LOG_FILEMODE] = logging_filemode
     _LOG_CONFIG[LogPostParam.LOG_FILEPATH] = logging_filepath
 
-    # is there a logger ?
     global PYPOMES_LOGGER
     if PYPOMES_LOGGER:
-        # yes, shut it down
+        # shut down the logger
         logging.shutdown()
         force_reset: bool = True
     else:
-        # no
+        # no logger exists
         force_reset: bool = False
 
     # start and configure the logger
     PYPOMES_LOGGER = logging.getLogger(name=__LOG_ID)
-
-    # typically done when a top-level app is fully configured
-    PYPOMES_LOGGER.propagate = False
 
     # decide whether the logger's output is to be streamed
     if str(logging_filepath) == "stdout":
@@ -142,9 +137,16 @@ def logging_startup(args: dict[str, Any] = None) -> None:
                             level=_LOG_CONFIG[LogPostParam.LOG_LEVEL],
                             force=force_reset)
 
-    # make sure all handlers use the default filter
+    # add root handlers to PYPOMES_LOGGER
     for handler in logging.root.handlers:
-        handler.addFilter(filter=logging.Filter(__LOG_ID))
+        PYPOMES_LOGGER.addHandler(handler)
+
+    # prevent other modules to write to the logger
+    # (this can still be allowed by invoking 'logging_log_forward()')
+    logging.root.handlers.clear()
+
+    # typically done when a top-level app is fully configured
+    PYPOMES_LOGGER.propagate = False
 
 
 def logging_shutdown() -> None:
@@ -275,7 +277,6 @@ def logging_send_entries(args: dict[str, Any]) -> Response:
         result = Response(response=json.dumps(obj={"errors": errors}),
                           status=400,
                           mimetype=Mimetype.JSON)
-
     return result
 
 
@@ -396,7 +397,9 @@ def logging_log_init(req: Request) -> str:
     :return: the information to be written to the log
     """
     # retrieve the request arguments
-    args: dict[str, Any] = dict(request.get_json(silent=True) or {})
+    json_input: Any = request.get_json(silent=True)
+    # JSON might be a list
+    args: dict[str, Any] = json_input if isinstance(json_input, dict) else {}
     args.update(request.values or {})
 
     origin: str = req.headers.get(key="X-Forwarded-For",
@@ -415,20 +418,18 @@ def logging_log_forward(source_logger: logging.Logger,
     :param source_logger: the logger being forwarded
     :param target_logger: the logger which *source_logger* is being forwarded to
     """
-    # create the forward handler
-    forwarder: LogForwarder = LogForwarder(target=target_logger)
+    # removes all handlers from 'source_logger'
+    source_logger.handlers.clear()
 
-    if source_logger:
-        # ensure logs only go to 'target_logger' ('source_logger' might have handlers elsewhere)
-        source_logger.handlers.clear()
-        source_logger.addHandler(hdlr=forwarder)
+    # add 'target_logger's handlers to 'source_logger'
+    for handler in target_logger.handlers:
+        source_logger.addHandler(handler)
 
-        # make 'source_logger' defer level decisions to 'target_logger'
-        source_logger.setLevel(logging.NOTSET)
+    # make logging levels for 'source_logger' and 'target_logger' agree
+    source_logger.setLevel(target_logger.getEffectiveLevel())
 
-        # disable propagation to avoid the records going up to root and possibly being handled twice
-        # ('forwarder' already sends them to 'target_logger')
-        source_logger.propagate = False
+    # prevent log bubbling to root
+    source_logger.propagate = False
 
 
 def __assert_params(params: list[str],
@@ -448,6 +449,7 @@ def __assert_params(params: list[str],
                                                 f"@{key}"))
 
 
+# noinspection PyUnresolvedReferences
 def __get_level_value(log_label: str) -> int:
     """
     Translate the log severity *log_label* into the logging's internal severity value.
