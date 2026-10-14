@@ -246,8 +246,8 @@ def logging_send_entries(args: dict[str, Any]) -> Response:
     log_threads: list[str] = str_as_list(args.get(LogGetParam.LOG_THREADS))
 
     # obtain the  timestamps
-    log_from: datetime = datetime_parse(dt_str=args.get(LogGetParam.LOG_FROM_DATETIME))
-    log_to: datetime = datetime_parse(dt_str=args.get(LogGetParam.LOG_TO_DATETIME))
+    log_from: datetime = datetime_parse(args.get(LogGetParam.LOG_FROM_DATETIME))
+    log_to: datetime = datetime_parse(args.get(LogGetParam.LOG_TO_DATETIME))
 
     if not log_from and not log_to:
         last_days: str = args.get(LogGetParam.LOG_LAST_DAYS, "0")
